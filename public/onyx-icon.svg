@@ -1,0 +1,62 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="512" y1="64" x2="512" y2="960" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1E1E24"/>
+      <stop offset="45%" stop-color="#0D0D10"/>
+      <stop offset="100%" stop-color="#050507"/>
+    </linearGradient>
+    <linearGradient id="rimGrad" x1="512" y1="64" x2="512" y2="960" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.38"/>
+      <stop offset="30%" stop-color="#FFFFFF" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.04"/>
+    </linearGradient>
+    <radialGradient id="topGlow" cx="50%" cy="12%" r="60%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="facetTopLeft" x1="340" y1="240" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#D4D4D8"/>
+    </linearGradient>
+    <linearGradient id="facetTopRight" x1="684" y1="240" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A1A1AA"/>
+      <stop offset="100%" stop-color="#52525B"/>
+    </linearGradient>
+    <linearGradient id="facetBottomLeft" x1="320" y1="512" x2="512" y2="790" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A1A1AA"/>
+      <stop offset="100%" stop-color="#71717A"/>
+    </linearGradient>
+    <linearGradient id="facetBottomRight" x1="704" y1="512" x2="512" y2="790" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3F3F46"/>
+      <stop offset="100%" stop-color="#18181B"/>
+    </linearGradient>
+    <filter id="gemShadow" x="200" y="180" width="624" height="680" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.75"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Base -->
+  <rect x="64" y="64" width="896" height="896" rx="210" fill="url(#bgGrad)"/>
+  <rect x="64" y="64" width="896" height="896" rx="210" fill="url(#topGlow)"/>
+  <rect x="67" y="67" width="890" height="890" rx="207" stroke="url(#rimGrad)" stroke-width="6"/>
+
+  <!-- Subtle Geometric Orbital Ring -->
+  <circle cx="512" cy="512" r="310" stroke="#FFFFFF" stroke-opacity="0.06" stroke-width="2" stroke-dasharray="8 10"/>
+
+  <!-- Faceted Onyx Octahedron / Prism -->
+  <g filter="url(#gemShadow)">
+    <!-- Upper Left Facet (Brightest Specular) -->
+    <polygon points="512,216 284,512 512,464" fill="url(#facetTopLeft)"/>
+    <!-- Upper Right Facet -->
+    <polygon points="512,216 740,512 512,464" fill="url(#facetTopRight)"/>
+    <!-- Lower Left Facet -->
+    <polygon points="284,512 512,808 512,464" fill="url(#facetBottomLeft)"/>
+    <!-- Lower Right Facet (Deep Obsidian) -->
+    <polygon points="740,512 512,808 512,464" fill="url(#facetBottomRight)"/>
+    <!-- Crisp Inner Specular Ridge Lines -->
+    <line x1="512" y1="216" x2="512" y2="808" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="3"/>
+    <line x1="284" y1="512" x2="512" y2="464" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="3"/>
+    <line x1="512" y1="464" x2="740" y2="512" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="2.5"/>
+    <polygon points="512,216 740,512 512,808 284,512" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="3" fill="none"/>
+  </g>
+</svg>

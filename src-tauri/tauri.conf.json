@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Onyx",
+  "version": "1.0.0",
+  "identifier": "io.onyx.diskcleaner",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Onyx — Disk & System Cleaner",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 1024,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "backgroundColor": "#050505"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "nsis"],
+    "category": "Utility",
+    "shortDescription": "High-performance disk space manager & system cleaner",
+    "longDescription": "Onyx is a high-performance desktop disk space analyzer, developer junk cleaner, and system cache purge utility built with Tauri v2 and Rust.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      }
+    }
+  }
+}

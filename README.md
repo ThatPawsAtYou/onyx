@@ -1,2 +1,203 @@
-# onyx
-High-performance desktop disk space analyzer, SHA-256 duplicate finder &amp; developer cache cleaner built with Tauri v2, Rust &amp; React Bento UI.
+<div align="center">
+  <img width="96" height="96" alt="onyx-icon" src="https://github.com/user-attachments/assets/49ddb2f5-36bf-458b-a16b-5813b79256bb">
+
+  # Onyx
+
+  **High-Performance Desktop Disk Space Analyzer & System Cleaner**  
+  *Built with Tauri v2, Multi-Threaded Rust & React Bento UI*
+
+  [![Tauri v2](https://img.shields.io/badge/Tauri-v2.0-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://v2.tauri.app/)
+  [![Rust](https://img.shields.io/badge/Rust-1.77%2B-000000?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+  [![React](https://img.shields.io/badge/React-18-149ECA?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
+  [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-zinc?style=flat-square)](#downloads--releases)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-10B981?style=flat-square)](./LICENSE)
+</div>
+
+<img width="1280" height="640" alt="social-preview" src="https://github.com/user-attachments/assets/89981268-08de-4e85-a48c-fd82a3b1d8fe" />
+
+---
+
+## Overview
+
+**Onyx** is a fast, native, cross-platform desktop utility for analyzing disk usage and safely reclaiming gigabytes of wasted storage. Engineered at the intersection of systems-level **Rust** performance and modern **Framer / Linear / Raycast** dark-mode craft, Onyx replaces cluttered legacy file tables with an interactive **Bento Grid** canvas (`#050505`), tactile spring animations, and work-stealing parallel filesystem traversal (`jwalk` + `rayon` + `sha2`).
+
+Onyx runs **100% locally** against real operating system telemetry with zero external network calls, zero ads, and strict OS Recycle Bin / Trash safety guardrails. Out of the box, the interface defaults to **English (`EN`)** and includes a one-click in-app language toggle for **Russian (`RU`)**.
+
+---
+
+## Key Features (`v1.0.0`)
+
+### 1. Modular Bento Overview Dashboard
+- **Drives & Storage (`StorageGaugeCard`):** Orbital circular capacity gauge, instant partition switcher (`C:\`, `D:\`, `/`, removable NVMe/USB drives), multi-segment usage breakdown bar, and live **RAM**, **CPU load**, and **OS uptime** telemetry powered by `sysinfo`.
+- **Dev Junk Cleaner (`DevJunkCard`):** Parallel scanner targeting heavy build and dependency artifacts:
+  - `node_modules` (Node.js / npm / pnpm / Bun)
+  - `target` (Rust / Cargo — validated against `Cargo.toml` to prevent false positives)
+  - `.venv`, `venv`, `__pycache__`, `.pytest_cache`, `.ruff_cache` (Python)
+  - `Docker` build caches, `.gradle`, `Pods` (CocoaPods), `DerivedData`, `.next`, `.turbo`
+  - Includes a **Smart Project Age Filter** (*Any age*, *Older > 7d*, *Older > 30d*) so active projects stay untouched.
+- **System Cache (`SystemCacheCard`):** Detects OS `Temp` directories, browser caches (Chrome, Edge, Brave, Firefox, Chromium), package tarballs (`npm`, `pip`, `cargo`), and crash logs with granular `Radix Switch` toggles and an animated **Purge** module tracking reclaimed gigabytes.
+- **Large Files Inspector (`LargeFilesCard`):** High-volume file radar (`> 1 GB`, `> 500 MB`, `> 100 MB`, `> 10 MB`) with smooth category tabs (*Video*, *Archives*, *Installers*, *Disk & Data*) and instant filename/path search.
+
+### 2. Space Lens — Interactive Directory Treemap
+- Visual proportional folder footprint map inspired by WizTree and DaisyDisk.
+- Click any folder tile to drill deeper into subdirectories, navigate back via interactive breadcrumbs, reveal paths in Explorer / Finder / File Manager, or move items directly to Trash.
+
+### 3. Smart Duplicate Finder (`SHA-256`)
+- Three-stage parallel cryptographic pipeline (`jwalk` + `rayon` + `sha2`):
+  1. Exact byte-size clustering.
+  2. Fast 8 KB edge signature pre-hash (first 4 KB + last 4 KB).
+  3. Full **SHA-256** verification to guarantee zero false positives.
+- **Smart Auto-Select Copies** marks redundant duplicates in one click while keeping original files protected.
+
+### 4. File Extension Analytics, Cleanup Audit Log & Report Export
+- **File Extensions Footprint:** Ranks disk consumption across file extensions (`.so`, `.mp4`, `.zip`, `.rlib`, `.gguf`, `.exe`, `.vhdx`, etc.).
+- **Persistent Cleanup Audit Log:** Locally records every cleanup batch (`cleanup_history.json`) and tracks lifetime storage reclaimed.
+- **One-Click Storage Audit Export:** Export a comprehensive system & storage report in **Markdown (`.md`)** or **JSON (`.json`)**.
+
+### 5. Command Palette (`Ctrl+K` / `⌘K`)
+- Raycast-style keyboard command launcher (`↑` `↓` `Enter` `Esc`) to jump across views, trigger scans, export reports, or locate discovered projects and large files instantaneously.
+
+---
+
+## Tech Stack
+
+### Native Shell & Backend (`src-tauri/`)
+- **[Tauri v2](https://v2.tauri.app/)** — lightweight native OS windowing (`HWND` + Microsoft Edge WebView2 on Windows, WebKitGTK on Linux, WKWebView on macOS).
+- **Rust (2021 Edition)** — memory-safe systems performance with zero GC pauses.
+- **`sysinfo`** — physical disk partitions, filesystems, CPU load, uptime, Swap, and RAM metrics.
+- **`jwalk` + `rayon` + `walkdir`** — multi-threaded directory walking and parallel directory sizing across all CPU cores.
+- **`sha2`** — cryptographic SHA-256 hashing for duplicate verification.
+- **`trash` & Win32 `SHFileOperationW`** — safe OS Recycle Bin / Freedesktop Trash routing.
+
+### Frontend (`src/`)
+- **React 18 + TypeScript + Vite 6**
+- **Tailwind CSS** — custom Obsidian Dark design tokens (`#050505`, `border-white/10`, subtle specular rims).
+- **Framer Motion** — tactile spring physics (`scale: 0.98`), layout transitions, and cursor-tracked radial Bento spotlights.
+- **Radix UI (`Dialog`, `Switch`, `Tooltip`)** — accessible WAI-ARIA primitives.
+- **Lucide Icons + Bundled Geist Sans / Geist Mono / Inter** — 100% offline typography with `tabular-nums` precision.
+
+---
+
+## Safety Architecture (`safety.rs`)
+
+Onyx is engineered around **Zero Destructive Surprise**:
+1. **Kernel & System Path Guardrails:** `src-tauri/src/safety.rs` strictly blocks deletion of filesystem roots (`C:\`, `/`), user home roots, and critical OS directories (`C:\Windows`, `C:\Program Files`, `/usr`, `/etc`, `/bin`, `/boot`, `/proc`, `/sys`, `/dev`, `/System`), while rejecting `..` path-traversal segments.
+2. **OS Recycle Bin First:** Deletions route through the native OS Recycle Bin (`SHFileOperationW` with `FOF_ALLOWUNDO` on Windows; `trash` crate on Linux/macOS) so files remain restorable.
+3. **Directory-Preserving Cache Purge:** System cache buckets marked `contents_only` purge internal temporary files while keeping the root directory and its OS permissions intact.
+4. **Zero Telemetry:** Onyx makes zero outbound network connections.
+
+---
+
+## Downloads & Releases
+
+Pre-built native binaries for **Windows (x64)** and **Linux (x86_64)** are available in [`./releases/`](./releases/) and on the **GitHub Releases** page:
+
+| Platform | Artifact | Format | Description |
+| :--- | :--- | :--- | :--- |
+| **Windows 10/11 (x64)** | `releases/windows-x86_64/Onyx_1.0.0_x64-setup.exe` | NSIS Installer (`.exe`) | Native desktop installer with Start Menu / Desktop shortcuts & uninstaller |
+| **Windows 10/11 (x64)** | `releases/windows-x86_64/onyx.exe` | Portable Native GUI (`.exe`) | Standalone single-file native Win32 + WebView2 desktop executable |
+| **Linux (Debian / Ubuntu)** | `releases/linux-x86_64/Onyx_1.0.0_amd64.deb` | Debian Package (`.deb`) | Install via `sudo apt install ./Onyx_1.0.0_amd64.deb` |
+| **Linux (x86_64)** | `releases/linux-x86_64/onyx-linux-x86_64` | Native ELF Binary | Direct execution: `chmod +x onyx-linux-x86_64 && ./onyx-linux-x86_64` |
+
+SHA-256 checksums for all binaries are published in [`releases/SHA256SUMS.txt`](./releases/SHA256SUMS.txt).
+
+---
+
+## Building from Source
+
+### Prerequisites
+- **Node.js** `>= 20.x` & `npm`
+- **Rust** `>= 1.77` (`rustup`)
+- Platform dependencies for Tauri v2:
+  - **Windows 10/11:** Microsoft Visual Studio C++ Build Tools & WebView2 Runtime (pre-installed on Windows 10/11).
+  - **Linux (Debian / Ubuntu):**
+    ```bash
+    sudo apt update
+    sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+      libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+    ```
+  - **macOS:** Xcode Command Line Tools (`xcode-select --install`).
+
+### Development & Production Build
+```bash
+# 1. Install frontend dependencies
+npm install
+
+# 2. Launch native Tauri v2 desktop window in development mode
+npm run tauri:dev
+
+# 3. Build optimized native installers for your OS
+npm run tauri:build
+
+# 4. Run Rust safety unit tests
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+```
+
+---
+
+## Localization (`EN` / `RU`)
+
+Onyx launches in **English (`EN`)** by default. You can switch the entire interface to **Russian (`RU`)** at any time via:
+- The **`EN / RU`** pill in the top application toolbar, or
+- **Settings (`⚙`) → Interface Language (`English` / `Русский`)**.
+
+Your language preference is saved automatically across sessions.
+
+---
+
+## Project Structure
+
+```text
+onyx/
+├── .github/
+│   ├── ISSUE_TEMPLATE/            # Bug report & feature request templates
+│   ├── PULL_REQUEST_TEMPLATE.md   # PR verification checklist
+│   └── workflows/
+│       ├── ci.yml                 # Continuous Integration (TS build + Rust tests)
+│       └── release.yml            # Multi-OS Tauri v2 release matrix (Win/Linux/macOS)
+├── docs/
+│   ├── onyx-dashboard.png         # Main Hero UI screenshot
+│   ├── social-preview.png         # 1280x640 GitHub Social Preview banner
+│   └── screenshots/               # Full Retina feature gallery (01–06)
+├── public/
+│   └── onyx-icon.svg              # Official Onyx crystal squircle icon
+├── releases/                      # Pre-built Windows (.exe) & Linux (.deb) binaries
+├── src/                           # React 18 + TypeScript + Tailwind + Framer Motion
+│   ├── components/
+│   │   ├── OnyxBrandIcon.tsx      # Official faceted Onyx crystal app icon
+│   │   ├── BentoCard.tsx          # Spotlight-tracked obsidian Bento surface
+│   │   ├── StorageGaugeCard.tsx   # Drives, partitions, RAM, CPU & Space Lens link
+│   │   ├── DevJunkCard.tsx        # Build artifact cleaner + stale project filter
+│   │   ├── SystemCacheCard.tsx    # OS cache switches + animated Purge counter
+│   │   ├── LargeFilesCard.tsx     # Large file inspector + instant search
+│   │   ├── SpaceLensView.tsx      # Interactive proportional folder treemap
+│   │   ├── DuplicatesView.tsx     # 3-stage SHA-256 duplicate finder
+│   │   ├── AnalyticsAndHistoryView.tsx # File extensions chart, audit log & export
+│   │   ├── CommandPaletteModal.tsx     # Ctrl+K / ⌘K quick command launcher
+│   │   └── SettingsAndFolderModal.tsx  # Scan root picker, language & safety info
+│   ├── lib/
+│   │   ├── bridge.ts              # Tauri v2 IPC / native Rust RPC bridge
+│   │   ├── format.ts              # Byte & uptime formatting helpers
+│   │   └── i18n.ts                # Full English (default) & Russian dictionaries
+│   ├── types/onyx.ts              # Strict Rust <-> TypeScript data contracts
+│   └── App.tsx
+└── src-tauri/                     # Rust + Tauri v2 native backend
+    ├── capabilities/default.json  # Tauri v2 security capability permissions
+    ├── icons/                     # Multi-platform icons (.ico, .icns, .png)
+    ├── src/
+    │   ├── main.rs                # Native entry point (windows_subsystem = "windows")
+    │   ├── lib.rs                 # 12 async #[tauri::command] handlers
+    │   ├── models.rs              # Serializable telemetry & scan structs
+    │   ├── safety.rs              # System directory protection + unit tests
+    │   ├── scanner.rs             # Parallel disk, dev-junk, cache & large-file engine
+    │   ├── spacelens.rs           # Space Lens folder profiler & extension stats
+    │   ├── duplicates.rs          # 3-stage parallel SHA-256 duplicate detector
+    │   ├── history.rs             # Persistent JSON cleanup history log
+    │   └── cleaner.rs             # Safe Recycle Bin / Trash routing
+    ├── Cargo.toml
+    └── tauri.conf.json
+```
+
+## License
+
+Distributed under the [MIT License](./LICENSE).

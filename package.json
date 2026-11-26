@@ -1,7 +1,7 @@
 {
   "name": "onyx-disk-manager",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Onyx — High-performance desktop disk space analyzer & system cleaner built with Tauri v2 & Rust",
   "license": "MIT",
   "type": "module",

@@ -6,7 +6,7 @@ Thank you for your interest in contributing to **Onyx**! We aim to keep both the
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/<your-username>/onyx.git
+   git clone https://github.com/ThatPawsAtYou/onyx.git
    cd onyx
    ```
 2. Install frontend dependencies:
@@ -22,7 +22,7 @@ Thank you for your interest in contributing to **Onyx**! We aim to keep both the
 
 - **Rust Backend (`src-tauri/`):**
   - Run `cargo fmt` and `cargo clippy --manifest-path src-tauri/Cargo.toml` before submitting changes.
-  - Every file deletion path **must** pass `safety::is_safe_deletion_path` and route through the OS Recycle Bin / Trash (`trash` crate on Linux/macOS, `SHFileOperationW` with `FOF_ALLOWUNDO` on Windows).
+  - Every file deletion path **must** pass `safety::is_safe_deletion_path` (normalized via `safety::resolve_clean_path`) and route through the OS Recycle Bin / Trash (`trash` crate on Linux/macOS; COM `IFileOperation` + `SHFileOperationW` fallback on Windows).
   - Execute heavy filesystem I/O inside `tauri::async_runtime::spawn_blocking` and `rayon` thread pools so the UI thread remains responsive at 60+ FPS.
 - **Frontend (`src/`):**
   - Maintain strict TypeScript compilation (`npm run build` must succeed with zero errors).
@@ -32,5 +32,5 @@ Thank you for your interest in contributing to **Onyx**! We aim to keep both the
 ## Pull Request Checklist
 
 - [ ] `npm run build` succeeds with zero TypeScript or Vite warnings/errors.
-- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` passes all safety tests.
+- [ ] `cargo test --manifest-path src-tauri/Cargo.toml --lib` passes all safety and path normalization tests.
 - [ ] Both English (`EN`) and Russian (`RU`) translations are updated if UI text changed.

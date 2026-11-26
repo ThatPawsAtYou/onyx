@@ -1,17 +1,11 @@
 use crate::models::CleanupHistoryEntry;
-use crate::safety::user_home_dir;
+use crate::safety::onyx_app_data_dir;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn history_file_path() -> PathBuf {
-    if let Some(local) = std::env::var_os("LOCALAPPDATA") {
-        let dir = PathBuf::from(local).join("Onyx");
-        let _ = fs::create_dir_all(&dir);
-        return dir.join("cleanup_history.json");
-    }
-    if let Some(home) = user_home_dir() {
-        let dir = home.join(".config").join("onyx");
+    if let Some(dir) = onyx_app_data_dir() {
         let _ = fs::create_dir_all(&dir);
         return dir.join("cleanup_history.json");
     }

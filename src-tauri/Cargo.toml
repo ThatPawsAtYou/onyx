@@ -1,10 +1,10 @@
 [package]
 name = "onyx"
-version = "1.0.0"
+version = "1.0.1"
 description = "Onyx — High-performance disk space analyzer & system cleaner"
-authors = ["Onyx Contributors"]
+authors = ["ThatPawsAtYou"]
 license = "MIT"
-repository = "https://github.com/onyx-app/onyx"
+repository = "https://github.com/ThatPawsAtYou/onyx"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -29,7 +29,13 @@ sha2 = "0.10"
 trash = "5"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_Foundation"] }
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
 
 [profile.release]
 panic = "abort"

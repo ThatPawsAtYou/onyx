@@ -6,13 +6,15 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  HardDrive,
+  Home,
   Layers,
   Loader2,
   RefreshCw,
   Trash2,
   Zap,
 } from 'lucide-react';
-import { SpaceLensReport, SpaceNode } from '../types/onyx';
+import { DiskTelemetry, SpaceLensReport, SpaceNode } from '../types/onyx';
 import { TranslationSet } from '../lib/i18n';
 import { cn, formatBytes, formatCompactCount } from '../lib/format';
 import { runSpaceLensScan } from '../lib/bridge';
@@ -21,8 +23,10 @@ import { SquircleIcon } from './SquircleIcon';
 
 interface SpaceLensViewProps {
   initialPath: string;
+  disks?: DiskTelemetry[];
+  homeDir?: string;
   onRevealPath: (path: string) => void;
-  onTrashNode: (node: SpaceNode) => Promise<void>;
+  onTrashNode: (node: SpaceNode) => Promise<boolean>;
   t: TranslationSet;
 }
 
@@ -38,6 +42,8 @@ const TILE_PALETTES = [
 
 export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
   initialPath,
+  disks = [],
+  homeDir = '',
   onRevealPath,
   onTrashNode,
   t,
@@ -53,6 +59,8 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
       const resp = await runSpaceLensScan(targetPath || undefined);
       setData(resp);
       setSelectedNodeId(resp.nodes[0]?.id ?? null);
+    } catch {
+      // Keep existing view if directory becomes inaccessible
     } finally {
       setIsLoading(false);
     }
@@ -73,8 +81,10 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
   const handleTrash = async (node: SpaceNode) => {
     setDeletingId(node.id);
     try {
-      await onTrashNode(node);
-      await loadFolder(data?.currentPath);
+      const deleted = await onTrashNode(node);
+      if (deleted) {
+        await loadFolder(data?.currentPath);
+      }
     } finally {
       setDeletingId(null);
     }
@@ -116,8 +126,45 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
           </div>
         </div>
 
+        {/* Quick Drive & Home Switcher Pills */}
+        {(disks.length > 0 || homeDir) && (
+          <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
+            {homeDir && (
+              <button
+                type="button"
+                onClick={() => loadFolder(homeDir)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  data?.currentPath === homeDir
+                    ? 'border-white/25 bg-white/10 text-white'
+                    : 'border-white/10 bg-[#050507] text-zinc-400 hover:border-white/20 hover:text-zinc-200'
+                )}
+              >
+                <Home size={11} />
+                <span>{t.resetDefaultRoot}</span>
+              </button>
+            )}
+            {disks.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => loadFolder(d.mountPoint)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] font-medium transition-colors',
+                  data?.currentPath === d.mountPoint
+                    ? 'border-cyan-400/35 bg-cyan-500/10 text-cyan-200'
+                    : 'border-white/10 bg-[#050507] text-zinc-400 hover:border-white/20 hover:text-zinc-200'
+                )}
+              >
+                <HardDrive size={11} />
+                <span>{d.mountPoint}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Interactive Breadcrumb Bar */}
-        <div className="mt-4 flex items-center gap-1.5 overflow-x-auto rounded-[13px] border border-white/[0.08] bg-[#050507] px-2.5 py-1.5">
+        <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto rounded-[13px] border border-white/[0.08] bg-[#050507] px-2.5 py-1.5">
           {data?.parentPath && (
             <button
               type="button"
@@ -324,7 +371,11 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
                         className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-300 group-hover/item:opacity-100"
                         title={t.moveToTrash}
                       >
-                        <Trash2 size={13} />
+                        {isRemoving ? (
+                          <Loader2 size={13} className="animate-spin text-rose-300" />
+                        ) : (
+                          <Trash2 size={13} />
+                        )}
                       </button>
 
                       <span className="min-w-[68px] text-right font-mono text-xs font-semibold text-white tabular-nums">

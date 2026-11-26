@@ -5,6 +5,7 @@ import {
   Command,
   Copy,
   Download,
+  Flame,
   FolderSearch,
   HardDrive,
   Layers,
@@ -22,6 +23,7 @@ interface CommandPaletteModalProps {
   onOpenChange: (open: boolean) => void;
   onNavigate: (view: ActiveView) => void;
   onRescan: () => void;
+  onPurgeCache?: () => void;
   onOpenFolderPicker: () => void;
   onExportReport: () => void;
   onRevealPath: (path: string) => void;
@@ -44,6 +46,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
   onOpenChange,
   onNavigate,
   onRescan,
+  onPurgeCache,
   onOpenFolderPicker,
   onExportReport,
   onRevealPath,
@@ -83,7 +86,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         id: 'nav-duplicates',
         group: t.cmdViewsGroup,
         title: t.navDuplicates,
-        subtitle: 'SHA-256 + Rayon',
+        subtitle: t.dupTitle,
         icon: Copy,
         onSelect: () => onNavigate('duplicates'),
       },
@@ -99,10 +102,22 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         id: 'act-rescan',
         group: t.cmdActionsGroup,
         title: t.scanAll,
-        subtitle: 'jwalk + sysinfo',
+        subtitle: t.storageSubtitle,
         icon: RefreshCw,
         onSelect: onRescan,
       },
+      ...(onPurgeCache
+        ? [
+            {
+              id: 'act-purge-cache',
+              group: t.cmdActionsGroup,
+              title: t.cmdSmartClean,
+              subtitle: t.cacheSubtitle,
+              icon: Flame,
+              onSelect: onPurgeCache,
+            },
+          ]
+        : []),
       {
         id: 'act-folder',
         group: t.cmdActionsGroup,
@@ -147,6 +162,7 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
     largeFiles,
     onNavigate,
     onRescan,
+    onPurgeCache,
     onOpenFolderPicker,
     onExportReport,
     onRevealPath,

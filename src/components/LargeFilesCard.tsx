@@ -8,6 +8,7 @@ import {
   Film,
   FolderOpen,
   HardDriveDownload,
+  Loader2,
   ScanSearch,
   Search,
   Trash2,
@@ -21,6 +22,7 @@ import { SquircleIcon, SquircleTone } from './SquircleIcon';
 interface LargeFilesCardProps {
   items: LargeFileItem[];
   minSizeMb: number;
+  isScanning?: boolean;
   onChangeThresholdMb: (mb: number) => void;
   onTrashFile: (file: LargeFileItem) => Promise<void>;
   onRevealPath: (path: string) => void;
@@ -37,6 +39,7 @@ const THRESHOLD_OPTIONS = [
 export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
   items,
   minSizeMb,
+  isScanning = false,
   onChangeThresholdMb,
   onTrashFile,
   onRevealPath,
@@ -101,9 +104,14 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
         <div className="flex items-center gap-3">
           <SquircleIcon icon={Disc} tone="emerald" size="md" />
           <div>
-            <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-white">
-              {t.largeTitle}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-white">
+                {t.largeTitle}
+              </h2>
+              {isScanning && (
+                <Loader2 size={13} className="animate-spin text-zinc-400" />
+              )}
+            </div>
             <p className="text-xs text-zinc-400">{t.largeSubtitle}</p>
           </div>
         </div>
@@ -192,7 +200,18 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
       {/* Large File List */}
       <div className="mt-3.5 flex-1 min-h-[220px] max-h-[264px] overflow-y-auto pr-1 space-y-1.5">
         <AnimatePresence mode="popLayout" initial={false}>
-          {filteredFiles.length === 0 ? (
+          {isScanning && items.length === 0 ? (
+            <motion.div
+              key="scanning-large"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex h-[210px] flex-col items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.01] p-6 text-center"
+            >
+              <Loader2 size={24} className="animate-spin text-zinc-400" />
+              <p className="mt-2.5 text-xs text-zinc-400">{t.scanning}</p>
+            </motion.div>
+          ) : filteredFiles.length === 0 ? (
             <motion.div
               key="empty-large"
               initial={{ opacity: 0, scale: 0.98 }}
@@ -295,7 +314,11 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
                         className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-300 group-hover/file:opacity-100"
                         title={t.moveToTrash}
                       >
-                        <Trash2 size={14} />
+                        {isRemoving ? (
+                          <Loader2 size={14} className="animate-spin text-rose-300" />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
                       </motion.button>
 
                       <span className="min-w-[74px] text-right font-mono text-[13px] font-semibold text-white tabular-nums">

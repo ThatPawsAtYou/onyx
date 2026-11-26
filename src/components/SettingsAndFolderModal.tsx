@@ -2,18 +2,20 @@ import React, { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Switch from '@radix-ui/react-switch';
 import {
+  ArrowUp,
   Check,
   Cpu,
   Folder,
   FolderSearch,
   Globe,
+  HardDrive,
   Lock,
   RotateCcw,
   Shield,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import { DirectoryEntry, Lang } from '../types/onyx';
+import { DirectoryEntry, DiskTelemetry, Lang } from '../types/onyx';
 import { TranslationSet } from '../lib/i18n';
 import { fetchSubdirectories } from '../lib/bridge';
 
@@ -22,8 +24,32 @@ interface FolderModalProps {
   onOpenChange: (open: boolean) => void;
   currentRoot: string;
   defaultHomeDir: string;
+  disks?: DiskTelemetry[];
   onApplyRoot: (root: string) => void;
   t: TranslationSet;
+}
+
+function computeParentDir(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed || trimmed === '/') return null;
+
+  // Windows drive root like "C:\" or "C:"
+  if (/^[A-Za-z]:\\?$/.test(trimmed)) {
+    return null;
+  }
+
+  const isWin = trimmed.includes('\\') || /^[A-Za-z]:/.test(trimmed);
+  const sep = isWin ? '\\' : '/';
+  const normalized = trimmed.replace(/[\\/]+$/, '');
+  const idx = normalized.lastIndexOf(sep);
+  if (idx < 0) return null;
+  if (isWin && idx === 2 && normalized[1] === ':') {
+    return `${normalized.slice(0, 2)}\\`;
+  }
+  if (!isWin && idx === 0) {
+    return '/';
+  }
+  return normalized.slice(0, idx);
 }
 
 export const FolderPickerModal: React.FC<FolderModalProps> = ({
@@ -31,6 +57,7 @@ export const FolderPickerModal: React.FC<FolderModalProps> = ({
   onOpenChange,
   currentRoot,
   defaultHomeDir,
+  disks = [],
   onApplyRoot,
   t,
 }) => {
@@ -51,8 +78,10 @@ export const FolderPickerModal: React.FC<FolderModalProps> = ({
     setInputPath(dirPath);
     fetchSubdirectories(dirPath)
       .then(setSubdirs)
-      .catch(() => {});
+      .catch(() => setSubdirs([]));
   };
+
+  const parentDir = computeParentDir(inputPath);
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -78,30 +107,71 @@ export const FolderPickerModal: React.FC<FolderModalProps> = ({
             </Dialog.Close>
           </div>
 
-          <div className="mt-4">
+          {/* Quick Drive Switcher */}
+          {disks.length > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-1.5">
+              {disks.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => navigateInto(d.mountPoint)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#050507] px-2.5 py-1 font-mono text-[11px] text-zinc-300 transition-colors hover:border-white/25 hover:text-white"
+                >
+                  <HardDrive size={11} className="text-zinc-400" />
+                  <span>{d.mountPoint}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Path Bar + Up Button */}
+          <div className="mt-3 flex items-center gap-2">
+            {parentDir && (
+              <button
+                type="button"
+                onClick={() => navigateInto(parentDir)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-white/15 bg-[#050507] px-3 py-2 text-xs font-medium text-zinc-200 hover:border-white/30 hover:text-white"
+                title={t.upFolder}
+              >
+                <ArrowUp size={13} />
+                <span>{t.upFolder}</span>
+              </button>
+            )}
             <input
               type="text"
               value={inputPath}
               onChange={(e) => setInputPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  navigateInto(inputPath.trim());
+                }
+              }}
               className="w-full rounded-xl border border-white/15 bg-[#050507] px-3.5 py-2 font-mono text-xs text-white placeholder-zinc-600 focus:border-white/35 focus:outline-none"
             />
           </div>
 
           <div className="mt-3 max-h-52 overflow-y-auto rounded-xl border border-white/10 bg-[#050507] p-1.5 space-y-1">
-            {subdirs.map((d) => (
-              <button
-                key={d.path}
-                type="button"
-                onClick={() => navigateInto(d.path)}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white"
-              >
-                <Folder size={14} className="shrink-0 text-zinc-400" />
-                <span className="truncate font-medium">{d.name}</span>
-                <span className="ml-auto truncate font-mono text-[10px] text-zinc-600 max-w-[180px]">
-                  {d.path}
-                </span>
-              </button>
-            ))}
+            {subdirs.length === 0 ? (
+              <div className="py-8 text-center text-xs text-zinc-500">
+                {t.spaceEmpty}
+              </div>
+            ) : (
+              subdirs.map((d) => (
+                <button
+                  key={d.path}
+                  type="button"
+                  onClick={() => navigateInto(d.path)}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white"
+                >
+                  <Folder size={14} className="shrink-0 text-zinc-400" />
+                  <span className="truncate font-medium">{d.name}</span>
+                  <span className="ml-auto truncate font-mono text-[10px] text-zinc-600 max-w-[180px]">
+                    {d.path}
+                  </span>
+                </button>
+              ))
+            )}
           </div>
 
           <div className="mt-5 flex items-center justify-between gap-3">
@@ -221,6 +291,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
             </div>
+
             {/* Safe Trash Guard */}
             <div className="flex items-start justify-between gap-4 rounded-2xl border border-white/10 bg-[#050507] p-4">
               <div className="flex gap-3">
@@ -243,7 +314,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </Switch.Root>
             </div>
 
-            {/* Rust Engine Hardware Info */}
+            {/* Hardware Info */}
             <div className="rounded-2xl border border-white/10 bg-[#050507] p-4">
               <div className="flex items-center gap-2 text-xs font-semibold text-white">
                 <Cpu size={14} className="text-indigo-400" />

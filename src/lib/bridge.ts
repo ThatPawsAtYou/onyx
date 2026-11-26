@@ -57,7 +57,7 @@ export async function runSystemCacheScan(): Promise<SystemCacheReport> {
 
 export async function runLargeFilesScan(
   rootPath?: string,
-  minSizeMb = 1024
+  minSizeMb = 100
 ): Promise<LargeFilesReport> {
   return await callRustEngine<LargeFilesReport>('scan_large_files', {
     rootPath: rootPath || null,
@@ -75,7 +75,7 @@ export async function runSpaceLensScan(
 
 export async function runDuplicatesScan(
   rootPath?: string,
-  minSizeKb = 256
+  minSizeKb = 100
 ): Promise<DuplicatesReport> {
   return await callRustEngine<DuplicatesReport>('scan_duplicates', {
     rootPath: rootPath || null,
@@ -118,5 +118,15 @@ export async function fetchSubdirectories(
 ): Promise<DirectoryEntry[]> {
   return await callRustEngine<DirectoryEntry[]>('list_directories', {
     parentPath: parentPath || null,
+  });
+}
+
+export async function exportAuditReport(
+  filename: string,
+  content: string
+): Promise<string> {
+  return await callRustEngine<string>('export_audit_report', {
+    filename,
+    content,
   });
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -31,6 +31,7 @@ import {
 } from './types/onyx';
 import { translations } from './lib/i18n';
 import {
+  exportAuditReport,
   fetchSystemOverview,
   moveTargetsToTrash,
   revealPathInFolder,
@@ -52,6 +53,8 @@ import {
   FolderPickerModal,
   SettingsModal,
 } from './components/SettingsAndFolderModal';
+
+const APP_VERSION = '1.0.1';
 
 interface ToastBanner {
   id: number;
@@ -84,7 +87,7 @@ export const App: React.FC = () => {
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [customRoot, setCustomRoot] = useState<string>('');
   const [spaceLensStartPath, setSpaceLensStartPath] = useState<string>('');
-  const [minLargeSizeMb, setMinLargeSizeMb] = useState<number>(10);
+  const [minLargeSizeMb, setMinLargeSizeMb] = useState<number>(100);
 
   const [overview, setOverview] = useState<SystemOverview | null>(null);
   const [selectedDiskId, setSelectedDiskId] = useState<string>('');
@@ -92,7 +95,9 @@ export const App: React.FC = () => {
   const [cacheReport, setCacheReport] = useState<SystemCacheReport | null>(null);
   const [largeReport, setLargeReport] = useState<LargeFilesReport | null>(null);
 
-  const [isScanning, setIsScanning] = useState<boolean>(true);
+  const [isScanningDev, setIsScanningDev] = useState<boolean>(true);
+  const [isScanningCache, setIsScanningCache] = useState<boolean>(true);
+  const [isScanningLarge, setIsScanningLarge] = useState<boolean>(true);
   const [isCleaningDev, setIsCleaningDev] = useState<boolean>(false);
   const [isPurgingCache, setIsPurgingCache] = useState<boolean>(false);
   const [sessionFreedBytes, setSessionFreedBytes] = useState<number>(0);
@@ -105,13 +110,18 @@ export const App: React.FC = () => {
   const [paletteOpen, setPaletteOpen] = useState<boolean>(false);
   const [toast, setToast] = useState<ToastBanner | null>(null);
 
+  const minLargeRef = useRef<number>(minLargeSizeMb);
+  minLargeRef.current = minLargeSizeMb;
+
+  const isScanning = isScanningDev || isScanningCache || isScanningLarge;
+
   const notify = useCallback(
     (message: string, tone: ToastBanner['tone'] = 'emerald') => {
       const id = Date.now();
       setToast({ id, message, tone });
       setTimeout(() => {
         setToast((curr) => (curr?.id === id ? null : curr));
-      }, 4200);
+      }, 4600);
     },
     []
   );
@@ -128,39 +138,80 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
+  const refreshOverviewOnly = useCallback(async () => {
+    try {
+      const sys = await fetchSystemOverview();
+      setOverview(sys);
+      setSelectedDiskId((prev) =>
+        sys.disks.some((d) => d.id === prev) ? prev : sys.disks[0]?.id ?? ''
+      );
+      setEngineError(null);
+      return sys;
+    } catch (err) {
+      setEngineError(err instanceof Error ? err.message : String(err));
+      return null;
+    }
+  }, []);
+
+  // Progressive non-blocking scan so Drives/CPU/RAM appear immediately while disk scanners stream in
   const runFullScan = useCallback(
     async (rootPath: string, thresholdMb: number) => {
-      setIsScanning(true);
       setEngineError(null);
-      try {
-        const [sys, dev, cache, large] = await Promise.all([
-          fetchSystemOverview(),
-          runDevJunkScan(rootPath ? [rootPath] : undefined),
-          runSystemCacheScan(),
-          runLargeFilesScan(rootPath || undefined, thresholdMb),
-        ]);
+      setIsScanningDev(true);
+      setIsScanningCache(true);
+      setIsScanningLarge(true);
 
-        setOverview(sys);
-        setSelectedDiskId((prev) =>
-          sys.disks.some((d) => d.id === prev) ? prev : sys.disks[0]?.id ?? ''
-        );
-        setDevReport(dev);
-        setCacheReport(cache);
-        setLargeReport(large);
-      } catch (err) {
-        setEngineError(err instanceof Error ? err.message : String(err));
-      } finally {
-        setIsScanning(false);
-      }
+      const sysTask = refreshOverviewOnly();
+
+      const cacheTask = runSystemCacheScan()
+        .then((cache) => setCacheReport(cache))
+        .catch((err) =>
+          setEngineError(err instanceof Error ? err.message : String(err))
+        )
+        .finally(() => setIsScanningCache(false));
+
+      const devTask = runDevJunkScan(rootPath ? [rootPath] : undefined)
+        .then((dev) => setDevReport(dev))
+        .catch((err) =>
+          setEngineError(err instanceof Error ? err.message : String(err))
+        )
+        .finally(() => setIsScanningDev(false));
+
+      const largeTask = runLargeFilesScan(rootPath || undefined, thresholdMb)
+        .then((large) => setLargeReport(large))
+        .catch((err) =>
+          setEngineError(err instanceof Error ? err.message : String(err))
+        )
+        .finally(() => setIsScanningLarge(false));
+
+      await Promise.allSettled([sysTask, cacheTask, devTask, largeTask]);
     },
-    []
+    [refreshOverviewOnly]
   );
 
+  // Initial & customRoot-triggered full scan
   useEffect(() => {
-    runFullScan(customRoot, minLargeSizeMb);
-  }, [customRoot, minLargeSizeMb, runFullScan]);
+    runFullScan(customRoot, minLargeRef.current);
+  }, [customRoot, runFullScan]);
 
-  // Periodic lightweight hardware telemetry refresh (CPU/RAM/Disks) every 6 seconds
+  // Changing Large Files threshold ONLY rescans Large Files (instant, no wasted Dev/Cache scan)
+  const handleChangeLargeThreshold = useCallback(
+    async (nextMb: number) => {
+      setMinLargeSizeMb(nextMb);
+      setIsScanningLarge(true);
+      try {
+        const large = await runLargeFilesScan(customRoot || undefined, nextMb);
+        setLargeReport(large);
+      } catch (err) {
+        notify(err instanceof Error ? err.message : String(err), 'rose');
+      } finally {
+        setIsScanningLarge(false);
+      }
+    },
+    [customRoot, notify]
+  );
+
+  // Lightweight live hardware telemetry refresh (CPU/RAM/Disks) every 6 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       fetchSystemOverview()
@@ -197,10 +248,16 @@ export const App: React.FC = () => {
           })`,
           'emerald'
         );
-        await runFullScan(customRoot, minLargeSizeMb);
+        const [ , freshDev] = await Promise.all([
+          refreshOverviewOnly(),
+          runDevJunkScan(customRoot ? [customRoot] : undefined),
+        ]);
+        setDevReport(freshDev);
       } else if (res.errors.length > 0) {
         notify(res.errors[0], 'rose');
       }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
     } finally {
       setIsCleaningDev(false);
     }
@@ -222,63 +279,93 @@ export const App: React.FC = () => {
           `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)}`,
           'emerald'
         );
-        await runFullScan(customRoot, minLargeSizeMb);
+        const [, freshCache] = await Promise.all([
+          refreshOverviewOnly(),
+          runSystemCacheScan(),
+        ]);
+        setCacheReport(freshCache);
       } else if (res.errors.length > 0) {
         notify(res.errors[0], 'rose');
       }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
     } finally {
       setIsPurgingCache(false);
     }
   };
 
   const handleTrashLargeFile = async (file: LargeFileItem) => {
-    const res = await moveTargetsToTrash(
-      [{ path: file.path, contentsOnly: false }],
-      'large_files'
-    );
-    if (res.deletedCount > 0) {
-      setSessionFreedBytes((prev) => prev + res.freedBytes);
-      notify(
-        `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${file.name})`,
-        'emerald'
+    try {
+      const res = await moveTargetsToTrash(
+        [{ path: file.path, contentsOnly: false }],
+        'large_files'
       );
-      await runFullScan(customRoot, minLargeSizeMb);
-    } else if (res.errors.length > 0) {
-      notify(res.errors[0], 'rose');
+      if (res.deletedCount > 0) {
+        setSessionFreedBytes((prev) => prev + res.freedBytes);
+        // Optimistic zero-latency UI update + drive free space refresh
+        setLargeReport((prev) => {
+          if (!prev) return prev;
+          const remaining = prev.items.filter((i) => i.id !== file.id);
+          return {
+            ...prev,
+            items: remaining,
+            totalBytes: remaining.reduce((acc, f) => acc + f.sizeBytes, 0),
+          };
+        });
+        notify(
+          `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${file.name})`,
+          'emerald'
+        );
+        await refreshOverviewOnly();
+      } else if (res.errors.length > 0) {
+        notify(res.errors[0], 'rose');
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
     }
   };
 
-  const handleTrashSpaceLensNode = async (node: SpaceNode) => {
-    const res = await moveTargetsToTrash(
-      [{ path: node.path, contentsOnly: false }],
-      'space_lens'
-    );
-    if (res.deletedCount > 0) {
-      setSessionFreedBytes((prev) => prev + res.freedBytes);
-      notify(
-        `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${node.name})`,
-        'emerald'
+  const handleTrashSpaceLensNode = async (node: SpaceNode): Promise<boolean> => {
+    try {
+      const res = await moveTargetsToTrash(
+        [{ path: node.path, contentsOnly: false }],
+        'space_lens'
       );
-      await runFullScan(customRoot, minLargeSizeMb);
-    } else if (res.errors.length > 0) {
-      notify(res.errors[0], 'rose');
+      if (res.deletedCount > 0) {
+        setSessionFreedBytes((prev) => prev + res.freedBytes);
+        notify(
+          `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${node.name})`,
+          'emerald'
+        );
+        refreshOverviewOnly();
+        return true;
+      } else if (res.errors.length > 0) {
+        notify(res.errors[0], 'rose');
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
     }
+    return false;
   };
 
   const handleTrashDuplicates = async (paths: string[]) => {
-    const targets = paths.map((p) => ({ path: p, contentsOnly: false }));
-    const res = await moveTargetsToTrash(targets, 'duplicates');
-    if (res.deletedCount > 0) {
-      setSessionFreedBytes((prev) => prev + res.freedBytes);
-      notify(
-        `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${
-          res.deletedCount
-        })`,
-        'emerald'
-      );
-      await runFullScan(customRoot, minLargeSizeMb);
-    } else if (res.errors.length > 0) {
-      notify(res.errors[0], 'rose');
+    try {
+      const targets = paths.map((p) => ({ path: p, contentsOnly: false }));
+      const res = await moveTargetsToTrash(targets, 'duplicates');
+      if (res.deletedCount > 0) {
+        setSessionFreedBytes((prev) => prev + res.freedBytes);
+        notify(
+          `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${
+            res.deletedCount
+          })`,
+          'emerald'
+        );
+        refreshOverviewOnly();
+      } else if (res.errors.length > 0) {
+        notify(res.errors[0], 'rose');
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
     }
   };
 
@@ -286,28 +373,38 @@ export const App: React.FC = () => {
     try {
       await revealPathInFolder(path);
       notify(`${t.revealFolder}: ${path}`, 'indigo');
-    } catch {
-      notify(path, 'indigo');
+    } catch (err) {
+      notify(err instanceof Error ? err.message : path, 'rose');
     }
   };
 
-  const downloadFile = (filename: string, content: string, mime: string) => {
-    const blob = new Blob([content], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const saveReportFile = async (
+    filename: string,
+    content: string,
+    mime: string
+  ) => {
+    try {
+      const savedPath = await exportAuditReport(filename, content);
+      notify(`${t.toastExported}: ${savedPath}`, 'indigo');
+    } catch {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      notify(`${t.toastExported} (${filename})`, 'indigo');
+    }
   };
 
   const handleExportMarkdownReport = () => {
     if (!overview) return;
     const nowIso = new Date().toISOString();
     const lines: string[] = [
-      `# Onyx v1.0.0 — System Storage Audit Report`,
+      `# Onyx v${APP_VERSION} — System Storage Audit Report`,
       ``,
       `- **Generated**: ${nowIso}`,
       `- **Host**: \`${overview.hostName}\` (${overview.osName})`,
@@ -341,33 +438,34 @@ export const App: React.FC = () => {
       ) || ['- None detected']),
       ``,
     ];
-    downloadFile(
+    saveReportFile(
       `onyx-storage-audit-${overview.hostName}.md`,
       lines.join('\n'),
       'text/markdown;charset=utf-8'
     );
-    notify(`${t.toastExported} (.md)`, 'indigo');
   };
 
   const handleExportJsonReport = () => {
     if (!overview) return;
     const payload = {
       generatedAt: new Date().toISOString(),
-      version: '1.0.0',
+      version: APP_VERSION,
       overview,
       devJunk: devReport,
       caches: cacheReport,
       largeFiles: largeReport,
     };
-    downloadFile(
+    saveReportFile(
       `onyx-storage-audit-${overview.hostName}.json`,
       JSON.stringify(payload, null, 2),
       'application/json;charset=utf-8'
     );
-    notify(`${t.toastExported} (.json)`, 'indigo');
   };
 
   const activeScanRoot = customRoot || overview?.homeDir || '/';
+  const isMacPlatform =
+    typeof navigator !== 'undefined' &&
+    /Mac|iPod|iPhone|iPad/i.test(navigator.platform || '');
 
   const navItems: { id: ActiveView; label: string; icon: typeof LayoutGrid }[] = [
     { id: 'dashboard', label: t.navDashboard, icon: LayoutGrid },
@@ -403,8 +501,12 @@ export const App: React.FC = () => {
                 'border-rose-400/30 bg-zinc-950/90 text-rose-200'
             )}
           >
-            <CheckCircle2 size={14} className="shrink-0" />
-            <span className="max-w-md truncate">{toast.message}</span>
+            {toast.tone === 'rose' ? (
+              <AlertTriangle size={14} className="shrink-0 text-rose-400" />
+            ) : (
+              <CheckCircle2 size={14} className="shrink-0" />
+            )}
+            <span className="max-w-xl truncate">{toast.message}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -423,11 +525,7 @@ export const App: React.FC = () => {
                   Onyx
                 </h1>
                 <span className="rounded-full border border-white/15 bg-white/[0.04] px-2 py-0.5 font-mono text-[10px] font-medium text-zinc-300">
-                  v1.0.0
-                </span>
-                <span className="hidden md:inline-flex items-center gap-1.5 rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-300">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  Rust Native Engine
+                  v{APP_VERSION}
                 </span>
               </div>
               <p className="text-xs text-zinc-400">{t.appSubtitle}</p>
@@ -449,7 +547,7 @@ export const App: React.FC = () => {
               </motion.div>
             )}
 
-            {/* Command Palette Button (Ctrl+K) */}
+            {/* Command Palette Button (Ctrl+K / Cmd+K) */}
             <motion.button
               type="button"
               whileTap={{ scale: 0.97 }}
@@ -459,7 +557,7 @@ export const App: React.FC = () => {
               <Command size={12} className="text-zinc-400" />
               <span className="hidden sm:inline">{t.cmdPaletteHint}</span>
               <kbd className="rounded border border-white/15 bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
-                ⌘K
+                {isMacPlatform ? '⌘K' : 'Ctrl K'}
               </kbd>
             </motion.button>
 
@@ -504,11 +602,19 @@ export const App: React.FC = () => {
               className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0A0A0D] px-3 py-1.5 font-mono text-xs font-medium text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
             >
               <Globe size={13} className="text-zinc-400" />
-              <span className={lang === 'en' ? 'text-white font-semibold' : 'text-zinc-500'}>
+              <span
+                className={
+                  lang === 'en' ? 'text-white font-semibold' : 'text-zinc-500'
+                }
+              >
                 EN
               </span>
               <span className="text-zinc-600">/</span>
-              <span className={lang === 'ru' ? 'text-white font-semibold' : 'text-zinc-500'}>
+              <span
+                className={
+                  lang === 'ru' ? 'text-white font-semibold' : 'text-zinc-500'
+                }
+              >
                 RU
               </span>
             </motion.button>
@@ -590,7 +696,7 @@ export const App: React.FC = () => {
               <AlertTriangle size={18} className="shrink-0 text-rose-400" />
               <div>
                 <div className="font-semibold text-white">
-                  Rust Backend RPC Error
+                  System Engine Error
                 </div>
                 <div className="mt-0.5 text-rose-200/80">{engineError}</div>
               </div>
@@ -635,7 +741,7 @@ export const App: React.FC = () => {
             <DevJunkCard
               items={devReport?.items ?? []}
               durationMs={devReport?.durationMs ?? 0}
-              isScanning={isScanning}
+              isScanning={isScanningDev}
               isCleaning={isCleaningDev}
               onCleanItems={handleCleanDevItems}
               onRevealPath={handleRevealPath}
@@ -647,14 +753,23 @@ export const App: React.FC = () => {
               isPurging={isPurgingCache}
               sessionCacheFreedBytes={sessionCacheFreedBytes}
               onPurgeItems={handlePurgeCaches}
-              onRescanCache={() => runFullScan(customRoot, minLargeSizeMb)}
+              onRescanCache={async () => {
+                setIsScanningCache(true);
+                try {
+                  const c = await runSystemCacheScan();
+                  setCacheReport(c);
+                } finally {
+                  setIsScanningCache(false);
+                }
+              }}
               t={t}
             />
 
             <LargeFilesCard
               items={largeReport?.items ?? []}
               minSizeMb={minLargeSizeMb}
-              onChangeThresholdMb={(mb) => setMinLargeSizeMb(mb)}
+              isScanning={isScanningLarge}
+              onChangeThresholdMb={handleChangeLargeThreshold}
               onTrashFile={handleTrashLargeFile}
               onRevealPath={handleRevealPath}
               t={t}
@@ -667,6 +782,8 @@ export const App: React.FC = () => {
             initialPath={
               spaceLensStartPath || customRoot || overview?.homeDir || ''
             }
+            disks={overview?.disks ?? []}
+            homeDir={overview?.homeDir ?? ''}
             onRevealPath={handleRevealPath}
             onTrashNode={handleTrashSpaceLensNode}
             t={t}
@@ -701,23 +818,17 @@ export const App: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 font-mono">
-            {overview && (
-              <>
-                <span className="inline-flex items-center gap-1 text-zinc-400">
-                  <Cpu size={12} />
-                  {overview.cpuCores} Threads ·{' '}
-                  {overview.cpuUsagePercent.toFixed(1)}%
-                </span>
-                <span>·</span>
-                <span>{overview.osName}</span>
-                <span>·</span>
-              </>
-            )}
-            <span className="text-zinc-400">
-              Tauri v2 · Rust (sysinfo + jwalk + rayon + sha2 + trash)
-            </span>
-          </div>
+          {overview && (
+            <div className="flex flex-wrap items-center gap-3 font-mono">
+              <span className="inline-flex items-center gap-1 text-zinc-400">
+                <Cpu size={12} />
+                {overview.cpuCores} Threads ·{' '}
+                {overview.cpuUsagePercent.toFixed(1)}%
+              </span>
+              <span>·</span>
+              <span className="text-zinc-400">{overview.osName}</span>
+            </div>
+          )}
         </footer>
       </div>
 
@@ -727,6 +838,11 @@ export const App: React.FC = () => {
         onOpenChange={setPaletteOpen}
         onNavigate={(view) => setActiveView(view)}
         onRescan={() => runFullScan(customRoot, minLargeSizeMb)}
+        onPurgeCache={
+          cacheReport && cacheReport.items.length > 0
+            ? () => handlePurgeCaches(cacheReport.items)
+            : undefined
+        }
         onOpenFolderPicker={() => setFolderModalOpen(true)}
         onExportReport={handleExportMarkdownReport}
         onRevealPath={handleRevealPath}
@@ -740,6 +856,7 @@ export const App: React.FC = () => {
         onOpenChange={setFolderModalOpen}
         currentRoot={customRoot}
         defaultHomeDir={overview?.homeDir ?? '/home/user'}
+        disks={overview?.disks ?? []}
         onApplyRoot={(root) => setCustomRoot(root)}
         t={t}
       />

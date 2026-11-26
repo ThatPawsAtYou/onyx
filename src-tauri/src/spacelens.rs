@@ -1,7 +1,10 @@
 use crate::models::{
     DirectoryEntry, ExtensionStat, ExtensionsReport, SpaceLensReport, SpaceNode,
 };
-use crate::safety::user_home_dir;
+use crate::safety::{
+    is_reparse_or_symlink, normalize_path_buf, normalize_path_string, resolve_clean_path,
+    user_home_dir,
+};
 use crate::scanner::compute_dir_stats;
 use jwalk::WalkDirGeneric;
 use rayon::prelude::*;
@@ -22,14 +25,28 @@ fn days_since(mtime: Option<SystemTime>) -> u64 {
 fn build_breadcrumbs(target: &Path) -> Vec<DirectoryEntry> {
     let mut crumbs = Vec::new();
     let mut cur = Some(target);
+    let mut last_path_str = String::new();
+
     while let Some(p) = cur {
+        let p_str = normalize_path_string(p);
+        if p_str.is_empty() || p_str == last_path_str {
+            break;
+        }
+        last_path_str = p_str.clone();
+
         let name = p
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| p.to_string_lossy().to_string());
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| p_str.clone());
+
         crumbs.push(DirectoryEntry {
-            name: if name.is_empty() { "/".to_string() } else { name },
-            path: p.to_string_lossy().to_string(),
+            name: if name.is_empty() {
+                "/".to_string()
+            } else {
+                name
+            },
+            path: p_str,
         });
         cur = p.parent();
     }
@@ -40,22 +57,28 @@ fn build_breadcrumbs(target: &Path) -> Vec<DirectoryEntry> {
 pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
     let started = Instant::now();
     let root = target_path
-        .map(PathBuf::from)
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| resolve_clean_path(Path::new(&s)))
         .filter(|p| p.exists() && p.is_dir())
         .or_else(user_home_dir)
         .unwrap_or_else(|| PathBuf::from("/"));
 
-    let canonical = root.canonicalize().unwrap_or_else(|_| root.clone());
-    let parent_path = canonical.parent().map(|p| p.to_string_lossy().to_string());
-    let breadcrumbs = build_breadcrumbs(&canonical);
+    let clean_root = resolve_clean_path(&root);
+    let current_str = normalize_path_string(&clean_root);
+
+    let parent_path = clean_root
+        .parent()
+        .map(normalize_path_string)
+        .filter(|p| !p.is_empty() && p != &current_str);
+
+    let breadcrumbs = build_breadcrumbs(&clean_root);
 
     let mut children: Vec<PathBuf> = Vec::new();
-    if let Ok(rd) = fs::read_dir(&canonical) {
+    if let Ok(rd) = fs::read_dir(&clean_root) {
         for entry in rd.flatten() {
-            let p = entry.path();
+            let p = normalize_path_buf(&entry.path());
             let name = entry.file_name().to_string_lossy().to_string();
-            // Skip virtual kernel filesystems when inspecting "/"
-            if canonical == Path::new("/")
+            if clean_root == Path::new("/")
                 && matches!(
                     name.as_str(),
                     "proc" | "sys" | "dev" | "run" | "snap" | "lost+found"
@@ -65,7 +88,10 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
             }
             if matches!(
                 name.as_str(),
-                "$Recycle.Bin" | "System Volume Information"
+                "$Recycle.Bin"
+                    | "System Volume Information"
+                    | "Documents and Settings"
+                    | "Recovery"
             ) {
                 continue;
             }
@@ -77,13 +103,14 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
         .par_iter()
         .filter_map(|child| {
             let meta = fs::symlink_metadata(child).ok()?;
-            if meta.file_type().is_symlink() {
+            if is_reparse_or_symlink(&meta) {
                 return None;
             }
             let name = child
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
+            let clean_child_str = normalize_path_string(child);
 
             if meta.is_dir() {
                 let (sz, count, mtime) = compute_dir_stats(child);
@@ -91,9 +118,9 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
                     return None;
                 }
                 Some(SpaceNode {
-                    id: format!("node-{}", child.to_string_lossy()),
+                    id: format!("node-{}", clean_child_str),
                     name,
-                    path: child.to_string_lossy().to_string(),
+                    path: clean_child_str,
                     is_dir: true,
                     size_bytes: sz,
                     share_percent: 0.0,
@@ -106,9 +133,9 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
                     return None;
                 }
                 Some(SpaceNode {
-                    id: format!("node-{}", child.to_string_lossy()),
+                    id: format!("node-{}", clean_child_str),
                     name,
-                    path: child.to_string_lossy().to_string(),
+                    path: clean_child_str,
                     is_dir: false,
                     size_bytes: sz,
                     share_percent: 0.0,
@@ -136,7 +163,7 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
     }
 
     SpaceLensReport {
-        current_path: canonical.to_string_lossy().to_string(),
+        current_path: current_str,
         parent_path,
         breadcrumbs,
         nodes,
@@ -164,7 +191,8 @@ fn categorize_ext(ext: &str) -> &'static str {
 pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
     let started = Instant::now();
     let scan_root = root_path
-        .map(PathBuf::from)
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| resolve_clean_path(Path::new(&s)))
         .filter(|p| p.exists())
         .or_else(user_home_dir)
         .unwrap_or_else(|| PathBuf::from("/"));
@@ -182,11 +210,28 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
                 if let Ok(entry) = entry_res {
                     let name = entry.file_name.to_string_lossy().to_string();
                     if entry.file_type.is_dir() {
+                        if entry.file_type.is_symlink() {
+                            entry.read_children_path = None;
+                            return;
+                        }
                         if matches!(
                             name.as_str(),
-                            "proc" | "sys" | "dev" | "run" | "$Recycle.Bin" | "System Volume Information"
+                            "proc"
+                                | "sys"
+                                | "dev"
+                                | "run"
+                                | "$Recycle.Bin"
+                                | "System Volume Information"
+                                | "Documents and Settings"
+                                | "WinSxS"
                         ) {
                             entry.read_children_path = None;
+                            return;
+                        }
+                        if let Ok(meta) = entry.metadata() {
+                            if is_reparse_or_symlink(&meta) {
+                                entry.read_children_path = None;
+                            }
                         }
                         return;
                     }
@@ -257,7 +302,7 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
         items,
         total_bytes,
         total_files,
-        scanned_root: scan_root.to_string_lossy().to_string(),
+        scanned_root: normalize_path_string(&scan_root),
         duration_ms: started.elapsed().as_millis(),
     }
 }

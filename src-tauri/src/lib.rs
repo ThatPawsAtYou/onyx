@@ -100,6 +100,15 @@ async fn list_directories(parent_path: Option<String>) -> Result<Vec<DirectoryEn
         .map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn export_audit_report(filename: String, content: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        cleaner::export_report_to_downloads(&filename, &content)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -115,7 +124,8 @@ pub fn run() {
             clear_cleanup_history,
             move_to_trash,
             reveal_in_folder,
-            list_directories
+            list_directories,
+            export_audit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running Onyx Tauri application");

@@ -1,7 +1,7 @@
 [package]
 name = "onyx"
-version = "1.0.1"
-description = "Onyx — High-performance disk space analyzer & system cleaner"
+version = "1.1.0"
+description = "Onyx — High-performance disk space analyzer, storage diff & system cleaner"
 authors = ["ThatPawsAtYou"]
 license = "MIT"
 repository = "https://github.com/ThatPawsAtYou/onyx"
@@ -31,8 +31,10 @@ trash = "5"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
+    "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_Registry",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
 ] }
@@ -44,3 +46,15 @@ lto = false
 opt-level = "s"
 strip = true
 debug = false
+
+[profile.release.package.sha2]
+opt-level = 3
+
+[profile.release.package.jwalk]
+opt-level = 3
+
+[profile.release.package.walkdir]
+opt-level = 3
+
+[profile.release.package.rayon]
+opt-level = 3

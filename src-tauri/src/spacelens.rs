@@ -1,11 +1,17 @@
 use crate::models::{
     DirectoryEntry, ExtensionStat, ExtensionsReport, SpaceLensReport, SpaceNode,
+    StorageSnapshotMeta,
 };
+use crate::progress::{add_scanned_batch, is_scan_cancelled, set_scan_phase, ScanSessionGuard};
 use crate::safety::{
     is_reparse_or_symlink, normalize_path_buf, normalize_path_string, resolve_clean_path,
     user_home_dir,
 };
-use crate::scanner::compute_dir_stats;
+use crate::scanner::compute_dir_stats_parallel;
+use crate::snapshots::{
+    apply_diff_against_baseline, get_snapshot_for_path, upsert_snapshot_from_nodes,
+};
+use crate::whitelist::is_path_protected;
 use jwalk::WalkDirGeneric;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -55,6 +61,7 @@ fn build_breadcrumbs(target: &Path) -> Vec<DirectoryEntry> {
 }
 
 pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
+    let _guard = ScanSessionGuard::start("space_lens");
     let started = Instant::now();
     let root = target_path
         .filter(|s| !s.trim().is_empty())
@@ -65,6 +72,7 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
 
     let clean_root = resolve_clean_path(&root);
     let current_str = normalize_path_string(&clean_root);
+    set_scan_phase("space_lens", &current_str);
 
     let parent_path = clean_root
         .parent()
@@ -77,17 +85,18 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
     if let Ok(rd) = fs::read_dir(&clean_root) {
         for entry in rd.flatten() {
             let p = normalize_path_buf(&entry.path());
-            let name = entry.file_name().to_string_lossy().to_string();
+            let os_name = entry.file_name();
+            let name = os_name.to_string_lossy();
             if clean_root == Path::new("/")
                 && matches!(
-                    name.as_str(),
+                    name.as_ref(),
                     "proc" | "sys" | "dev" | "run" | "snap" | "lost+found"
                 )
             {
                 continue;
             }
             if matches!(
-                name.as_str(),
+                name.as_ref(),
                 "$Recycle.Bin"
                     | "System Volume Information"
                     | "Documents and Settings"
@@ -102,6 +111,9 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
     let mut nodes: Vec<SpaceNode> = children
         .par_iter()
         .filter_map(|child| {
+            if is_scan_cancelled() {
+                return None;
+            }
             let meta = fs::symlink_metadata(child).ok()?;
             if is_reparse_or_symlink(&meta) {
                 return None;
@@ -111,9 +123,10 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
             let clean_child_str = normalize_path_string(child);
+            let protected = is_path_protected(child);
 
             if meta.is_dir() {
-                let (sz, count, mtime) = compute_dir_stats(child);
+                let (sz, count, mtime) = compute_dir_stats_parallel(child);
                 if sz == 0 {
                     return None;
                 }
@@ -126,12 +139,15 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
                     share_percent: 0.0,
                     file_count: count,
                     modified_days_ago: days_since(mtime),
+                    delta_bytes: None,
+                    is_protected: protected,
                 })
             } else if meta.is_file() {
                 let sz = meta.len();
                 if sz == 0 {
                     return None;
                 }
+                add_scanned_batch(1, sz, None);
                 Some(SpaceNode {
                     id: format!("node-{}", clean_child_str),
                     name,
@@ -141,6 +157,8 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
                     share_percent: 0.0,
                     file_count: 1,
                     modified_days_ago: days_since(meta.modified().ok()),
+                    delta_bytes: None,
+                    is_protected: protected,
                 })
             } else {
                 None
@@ -158,8 +176,21 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
         }
     }
 
-    if nodes.len() > 28 {
-        nodes.truncate(28);
+    // Storage Diff ("Where Did My Space Go?"): compare against saved baseline if available,
+    // or automatically create an initial baseline snapshot on the very first completed scan!
+    let (has_baseline, snapshot_timestamp, total_delta_bytes) =
+        if let Some(baseline) = get_snapshot_for_path(&current_str) {
+            let total_delta = apply_diff_against_baseline(&baseline, total_bytes, &mut nodes);
+            (true, Some(baseline.timestamp_unix), Some(total_delta))
+        } else if !is_scan_cancelled() && !nodes.is_empty() {
+            let meta = upsert_snapshot_from_nodes(&current_str, total_bytes, &nodes);
+            (false, Some(meta.timestamp_unix), Some(0))
+        } else {
+            (false, None, None)
+        };
+
+    if nodes.len() > 30 {
+        nodes.truncate(30);
     }
 
     SpaceLensReport {
@@ -169,7 +200,21 @@ pub fn scan_space_lens(target_path: Option<String>) -> SpaceLensReport {
         nodes,
         total_bytes,
         duration_ms: started.elapsed().as_millis(),
+        has_baseline,
+        snapshot_timestamp,
+        total_delta_bytes,
     }
+}
+
+/// Captures a fresh baseline snapshot for `target_path` by running Space Lens sizing
+/// and persisting the current child sizes as the new diff reference point.
+pub fn capture_space_baseline(target_path: String) -> Result<StorageSnapshotMeta, String> {
+    let report = scan_space_lens(Some(target_path));
+    Ok(upsert_snapshot_from_nodes(
+        &report.current_path,
+        report.total_bytes,
+        &report.nodes,
+    ))
 }
 
 fn categorize_ext(ext: &str) -> &'static str {
@@ -181,14 +226,33 @@ fn categorize_ext(ext: &str) -> &'static str {
         "zip" | "tar" | "gz" | "tgz" | "xz" | "zst" | "7z" | "rar" | "crate" | "whl" | "pack" => {
             "archive"
         }
-        "exe" | "dll" | "so" | "dylib" | "rlib" | "rmeta" | "o" | "a" | "deb" | "msi" | "iso" => {
-            "binary"
-        }
+        "exe" | "dll" | "so" | "dylib" | "rlib" | "rmeta" | "o" | "a" | "deb" | "msi" | "iso"
+        | "vhdx" | "vhd" | "vmdk" | "qcow2" | "gguf" => "binary",
         _ => "data",
     }
 }
 
+/// Zero-allocation stack ASCII extension extractor: avoids creating 2-3 `String`s per file!
+#[inline]
+fn extract_ascii_ext_stack<'a>(file_name: &str, stack_buf: &'a mut [u8; 16]) -> &'a str {
+    let Some(dot_pos) = file_name.rfind('.') else {
+        return "no-ext";
+    };
+    if dot_pos == 0 {
+        return "no-ext";
+    }
+    let raw_ext = &file_name[dot_pos + 1..];
+    if raw_ext.is_empty() || raw_ext.len() > 12 || !raw_ext.is_ascii() {
+        return "no-ext";
+    }
+    for (i, b) in raw_ext.bytes().enumerate() {
+        stack_buf[i] = b.to_ascii_lowercase();
+    }
+    std::str::from_utf8(&stack_buf[..raw_ext.len()]).unwrap_or("no-ext")
+}
+
 pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
+    let _guard = ScanSessionGuard::start("extensions");
     let started = Instant::now();
     let scan_root = root_path
         .filter(|s| !s.trim().is_empty())
@@ -196,6 +260,8 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
         .filter(|p| p.exists())
         .or_else(user_home_dir)
         .unwrap_or_else(|| PathBuf::from("/"));
+
+    set_scan_phase("extensions", &scan_root.to_string_lossy());
 
     let acc: Arc<Mutex<HashMap<String, (u64, u64)>>> = Arc::new(Mutex::new(HashMap::new()));
     let acc_ref = Arc::clone(&acc);
@@ -205,17 +271,32 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
         .follow_links(false)
         .max_depth(9)
         .process_read_dir(move |_depth, _dir_path, _state, children| {
-            let mut local: HashMap<String, (u64, u64)> = HashMap::new();
+            if is_scan_cancelled() {
+                children.iter_mut().for_each(|e| {
+                    if let Ok(ent) = e {
+                        ent.read_children_path = None;
+                    }
+                });
+                return;
+            }
+
+            let mut local: HashMap<String, (u64, u64)> = HashMap::with_capacity(32);
+            let mut batch_files = 0u64;
+            let mut batch_bytes = 0u64;
+            let mut ext_buf = [0u8; 16];
+
             children.iter_mut().for_each(|entry_res| {
                 if let Ok(entry) = entry_res {
-                    let name = entry.file_name.to_string_lossy().to_string();
+                    let name_cow = entry.file_name.to_string_lossy();
+                    let name = name_cow.as_ref();
+
                     if entry.file_type.is_dir() {
                         if entry.file_type.is_symlink() {
                             entry.read_children_path = None;
                             return;
                         }
                         if matches!(
-                            name.as_str(),
+                            name,
                             "proc"
                                 | "sys"
                                 | "dev"
@@ -235,24 +316,30 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
                         }
                         return;
                     }
+
                     if entry.file_type.is_file() {
                         if let Ok(meta) = entry.metadata() {
                             let len = meta.len();
                             if len > 0 {
-                                let ext = entry
-                                    .path()
-                                    .extension()
-                                    .map(|e| e.to_string_lossy().to_lowercase())
-                                    .filter(|s| !s.is_empty() && s.len() <= 12)
-                                    .unwrap_or_else(|| "no-ext".to_string());
-                                let slot = local.entry(ext).or_insert((0, 0));
-                                slot.0 = slot.0.saturating_add(len);
-                                slot.1 = slot.1.saturating_add(1);
+                                batch_files += 1;
+                                batch_bytes = batch_bytes.saturating_add(len);
+
+                                let ext_key = extract_ascii_ext_stack(name, &mut ext_buf);
+                                if let Some(slot) = local.get_mut(ext_key) {
+                                    slot.0 = slot.0.saturating_add(len);
+                                    slot.1 = slot.1.saturating_add(1);
+                                } else {
+                                    local.insert(ext_key.to_string(), (len, 1));
+                                }
                             }
                         }
                     }
                 }
             });
+
+            if batch_files > 0 {
+                add_scanned_batch(batch_files, batch_bytes, None);
+            }
 
             if !local.is_empty() {
                 if let Ok(mut guard) = acc_ref.lock() {
@@ -265,7 +352,11 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
             }
         });
 
-    for _ in walker {}
+    for _ in walker {
+        if is_scan_cancelled() {
+            break;
+        }
+    }
 
     let map = acc.lock().map(|g| g.clone()).unwrap_or_default();
     let total_bytes: u64 = map.values().map(|v| v.0).sum();
@@ -294,8 +385,8 @@ pub fn scan_extension_stats(root_path: Option<String>) -> ExtensionsReport {
         .collect();
 
     items.sort_by(|a, b| b.total_bytes.cmp(&a.total_bytes));
-    if items.len() > 14 {
-        items.truncate(14);
+    if items.len() > 16 {
+        items.truncate(16);
     }
 
     ExtensionsReport {

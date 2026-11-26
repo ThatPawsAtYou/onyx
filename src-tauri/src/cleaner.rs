@@ -443,7 +443,10 @@ pub fn move_targets_to_trash(
                 }
             }
         } else {
-            let sz = estimated_target_size(&clean_target);
+            let sz = target
+                .expected_bytes
+                .filter(|&b| b > 0)
+                .unwrap_or_else(|| estimated_target_size(&clean_target));
             match send_path_to_system_trash(&clean_target) {
                 Ok(()) => {
                     freed_bytes = freed_bytes.saturating_add(sz);

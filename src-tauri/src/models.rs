@@ -52,6 +52,7 @@ pub struct DevJunkItem {
     pub size_bytes: u64,
     pub file_count: u64,
     pub modified_days_ago: u64,
+    pub is_protected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +76,7 @@ pub struct SystemCacheItem {
     pub size_bytes: u64,
     pub file_count: u64,
     pub safe_to_purge: bool,
+    pub is_protected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +98,9 @@ pub struct LargeFileItem {
     pub category: String,
     pub size_bytes: u64,
     pub modified_days_ago: u64,
+    pub is_virtual_disk: bool,
+    pub compact_hint: Option<String>,
+    pub is_protected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -119,6 +124,8 @@ pub struct SpaceNode {
     pub share_percent: f64,
     pub file_count: u64,
     pub modified_days_ago: u64,
+    pub delta_bytes: Option<i64>,
+    pub is_protected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +137,9 @@ pub struct SpaceLensReport {
     pub nodes: Vec<SpaceNode>,
     pub total_bytes: u64,
     pub duration_ms: u128,
+    pub has_baseline: bool,
+    pub snapshot_timestamp: Option<u64>,
+    pub total_delta_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -139,6 +149,7 @@ pub struct DuplicateFileEntry {
     pub parent_dir: String,
     pub modified_days_ago: u64,
     pub is_original: bool,
+    pub is_protected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,8 +210,10 @@ pub struct CleanupHistoryEntry {
 #[serde(rename_all = "camelCase")]
 pub struct TrashTarget {
     pub path: String,
-    #[serde(default)]
+    #[serde(default, alias = "cleanContentsOnly")]
     pub contents_only: bool,
+    #[serde(default)]
+    pub expected_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,4 +231,80 @@ pub struct PurgeReport {
 pub struct DirectoryEntry {
     pub name: String,
     pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanProgress {
+    pub is_running: bool,
+    pub phase: String,
+    pub files_scanned: u64,
+    pub bytes_scanned: u64,
+    pub current_path: String,
+    pub cancelled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageSnapshotMeta {
+    pub id: String,
+    pub target_path: String,
+    pub timestamp_unix: u64,
+    pub total_bytes: u64,
+    pub child_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtectedPathEntry {
+    pub path: String,
+    pub label: String,
+    pub added_unix: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledAppItem {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub publisher: String,
+    pub install_location: Option<String>,
+    pub size_bytes: u64,
+    pub uninstall_command: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeftoverItem {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub location_label: String,
+    pub reason: String,
+    pub confidence: String,
+    pub size_bytes: u64,
+    pub file_count: u64,
+    pub modified_days_ago: u64,
+    pub is_protected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsAndLeftoversReport {
+    pub apps: Vec<InstalledAppItem>,
+    pub leftovers: Vec<LeftoverItem>,
+    pub redist_items: Vec<DevJunkItem>,
+    pub total_leftover_bytes: u64,
+    pub total_redist_bytes: u64,
+    pub duration_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellIntegrationStatus {
+    pub supported: bool,
+    pub context_menu_enabled: bool,
+    pub startup_path: Option<String>,
 }

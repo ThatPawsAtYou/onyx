@@ -16,5 +16,23 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    target: 'es2021',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'motion-vendor': ['framer-motion'],
+          'ui-vendor': [
+            'react',
+            'react-dom',
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-switch',
+            '@radix-ui/react-tooltip',
+            'lucide-react',
+          ],
+        },
+      },
+    },
+  },
   envPrefix: ['VITE_', 'TAURI_ENV_'],
 });

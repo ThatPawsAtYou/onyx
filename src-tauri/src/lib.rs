@@ -1,14 +1,20 @@
+pub mod apps;
 pub mod cleaner;
 pub mod duplicates;
 pub mod history;
 pub mod models;
+pub mod progress;
 pub mod safety;
 pub mod scanner;
+pub mod snapshots;
 pub mod spacelens;
+pub mod whitelist;
 
 use models::{
-    CleanupHistoryEntry, DevJunkScanReport, DirectoryEntry, DuplicatesReport, ExtensionsReport,
-    LargeFilesReport, PurgeReport, SpaceLensReport, SystemCacheReport, SystemOverview, TrashTarget,
+    AppsAndLeftoversReport, CleanupHistoryEntry, DevJunkScanReport, DirectoryEntry,
+    DuplicatesReport, ExtensionsReport, LargeFilesReport, ProtectedPathEntry, PurgeReport,
+    ScanProgress, ShellIntegrationStatus, SpaceLensReport, StorageSnapshotMeta, SystemCacheReport,
+    SystemOverview, TrashTarget,
 };
 
 #[tauri::command]
@@ -69,6 +75,72 @@ async fn scan_extensions(root_path: Option<String>) -> Result<ExtensionsReport, 
 }
 
 #[tauri::command]
+async fn scan_apps_and_leftovers(
+    custom_root: Option<String>,
+) -> Result<AppsAndLeftoversReport, String> {
+    tauri::async_runtime::spawn_blocking(move || apps::scan_apps_and_leftovers(custom_root))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_scan_progress() -> ScanProgress {
+    progress::current_scan_progress()
+}
+
+#[tauri::command]
+fn cancel_active_scan() {
+    progress::cancel_active_scan();
+}
+
+#[tauri::command]
+fn list_protected_paths() -> Vec<ProtectedPathEntry> {
+    whitelist::list_protected_paths()
+}
+
+#[tauri::command]
+fn add_protected_path(path: String, label: Option<String>) -> Result<Vec<ProtectedPathEntry>, String> {
+    whitelist::add_protected_path(&path, label)
+}
+
+#[tauri::command]
+fn remove_protected_path(path: String) -> Result<Vec<ProtectedPathEntry>, String> {
+    whitelist::remove_protected_path(&path)
+}
+
+#[tauri::command]
+async fn save_space_snapshot(target_path: String) -> Result<StorageSnapshotMeta, String> {
+    tauri::async_runtime::spawn_blocking(move || spacelens::capture_space_baseline(target_path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn list_space_snapshots() -> Vec<StorageSnapshotMeta> {
+    snapshots::list_snapshots_meta()
+}
+
+#[tauri::command]
+fn delete_space_snapshot(target_path: String) -> Result<(), String> {
+    snapshots::delete_snapshot_for_path(&target_path)
+}
+
+#[tauri::command]
+fn get_shell_integration_status() -> ShellIntegrationStatus {
+    apps::get_shell_integration_status()
+}
+
+#[tauri::command]
+fn set_explorer_context_menu(enabled: bool) -> Result<ShellIntegrationStatus, String> {
+    apps::set_explorer_context_menu(enabled)
+}
+
+#[tauri::command]
+fn launch_app_uninstaller(uninstall_command: String) -> Result<(), String> {
+    apps::launch_app_uninstaller(&uninstall_command)
+}
+
+#[tauri::command]
 fn get_cleanup_history() -> Vec<CleanupHistoryEntry> {
     history::load_history()
 }
@@ -120,6 +192,18 @@ pub fn run() {
             scan_space_lens,
             scan_duplicates,
             scan_extensions,
+            scan_apps_and_leftovers,
+            get_scan_progress,
+            cancel_active_scan,
+            list_protected_paths,
+            add_protected_path,
+            remove_protected_path,
+            save_space_snapshot,
+            list_space_snapshots,
+            delete_space_snapshot,
+            get_shell_integration_status,
+            set_explorer_context_menu,
+            launch_app_uninstaller,
             get_cleanup_history,
             clear_cleanup_history,
             move_to_trash,

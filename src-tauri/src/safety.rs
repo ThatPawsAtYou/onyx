@@ -175,6 +175,13 @@ pub fn is_safe_deletion_path(path: &Path) -> Result<(), String> {
         return Err(format!("Path does not exist: {}", clean_buf.display()));
     }
 
+    if crate::whitelist::is_path_protected(&clean_buf) {
+        return Err(format!(
+            "Protected by Onyx Whitelist or .onyxignore: {}",
+            clean_buf.display()
+        ));
+    }
+
     check_normalized_safety_rules(&clean_buf.to_string_lossy())
 }
 
@@ -335,5 +342,15 @@ mod tests {
         let _ = fs::create_dir_all(&tmp);
         assert!(is_safe_deletion_path(&tmp).is_ok());
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn blocks_onyxignore_protected_project_folder() {
+        let proj = std::env::temp_dir().join("onyx_unit_test_ignored_proj");
+        let nm = proj.join("node_modules");
+        let _ = fs::create_dir_all(&nm);
+        let _ = fs::write(proj.join(".onyxignore"), "");
+        assert!(is_safe_deletion_path(&nm).is_err());
+        let _ = fs::remove_dir_all(&proj);
     }
 }

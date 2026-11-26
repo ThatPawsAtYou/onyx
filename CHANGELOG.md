@@ -2,6 +2,28 @@
 
 All notable changes to **Onyx** will be documented in this file.
 
+## [1.1.0] — 2026-11-26
+
+### Added
+- **Storage Snapshots & Diff Mode ("Where Did My Space Go?"):** Space Lens now captures compact directory snapshots (`space_snapshots.json`) and computes exact per-folder byte growth (`+Δ` in rose) and shrinkage (`-Δ` in emerald) since your last baseline, with **`Changed Only`** filtering and one-click **`Update Snapshot`** controls.
+- **Game, GPU Shader & Messenger Cache Cleaner:** Expanded `scan_system_cache` and `scan_dev_junk` with safe, session-preserving targets for **DirectX (`D3DSCache`)**, **NVIDIA (`DXCache` / `GLCache`)**, **AMD (`DxCache`)**, **Mesa Shader Cache**, **Steam (`depotcache` / `shadercache`)**, **Epic Games**, **Battle.net**, **EA**, **Riot**, **Telegram Desktop** media cache, **Discord**, **Slack**, **Spotify**, **VS Code**, **Figma**, **Adobe Media Cache**, and duplicate **`_CommonRedist`** game redistributables, organized under quick category tabs (*All*, *GPU & Gaming*, *Apps & Chat*, *Browsers & OS*).
+- **Installed Apps & Orphaned Leftover Hunter (`Apps & Leftovers`):** New primary workspace view enumerating installed software (`HKCU`/`HKLM` Windows Uninstall Registry on Windows; `.desktop`, Flatpak, and Snap apps on Linux) alongside an intelligent **Orphaned Leftover Hunter** that flags stale `AppData` / `~/.config` remnants from uninstalled apps with confidence scoring and Recycle Bin cleanup.
+- **Protected Paths Whitelist & `.onyxignore`:** Added persistent user path protection (`protected_paths.json` via Settings, per-row Shield buttons, or Right-Click menu) plus automatic `.onyxignore` marker file detection — strictly enforced across both UI auto-selection and `cleaner::move_targets_to_trash`.
+- **Windows Explorer `"Inspect in Onyx"`, Drag & Drop, Right-Click Menu & Live Stop:**
+  - Per-user (`HKCU\Software\Classes\Directory\shell\OnyxInspect`) Windows Explorer folder context menu toggle requiring zero Administrator/UAC elevation, plus startup CLI target routing into Space Lens.
+  - Native & HTML5 folder **Drag & Drop** overlay for instant Space Lens inspection.
+  - Custom Obsidian **Right-Click Context Menu** across Space Lens, Dev Junk, Large Files, Duplicates, and Apps & Leftovers.
+  - **Live Cancellable Scan Progress Bar** backed by lock-free `AtomicU64` / `AtomicBool` counters (`progress.rs`) with instant **`Stop`** cancellation.
+- **WSL2 & Docker Virtual Disk (`.vhdx`) Detector:** Automatically flags bloated `.vhdx`, `.vhd`, `.vmdk`, `.vdi`, and `.qcow2` virtual disks in Large Files, hides destructive Trash buttons on virtual disks, and provides a one-click **`Copy Shrink Cmd`** button (`wsl --shutdown ; Optimize-VHD -Path "..." -Mode Full`).
+
+### Performance Optimizations
+- **Deadlock-Free Rayon Work-Stealing Space Lens:** Replaced nested `jwalk` inside `par_iter` with a 2-level `rayon::par_iter()` fan-out over sequential `WalkDir` workers (`spacelens.rs`), eliminating thread-pool starvation on massive trees like `C:\Users` while scaling cleanly across all CPU cores.
+- **Zero-Allocation Hot-Path File Inspection:** Rewrote `scan_extension_stats` and `scan_large_files` to inspect `&OsStr` byte slices with stack ASCII lowercase buffers instead of allocating 2–3 heap `String`s per file, cutting millions of heap allocations on large volumes.
+- **128 KB SHA-256 Hashing Buffers & Targeted Crate Optimization:** Doubled duplicate hashing stack read buffers to `128 KB` and enabled `[profile.release.package.{sha2,jwalk,walkdir,rayon}] opt-level = 3` while keeping `opt-level = "s"` binary compactness.
+- **Zero-Layout-Thrash Bento Cards & Code-Split Bundle:** Memoized `BentoCard` with cached hover `DOMRect` coordinates (eliminating `getBoundingClientRect()` forced reflows on every `mousemove`), added `useDeferredValue` search filtering, and split Vite vendor chunks (`index-*.js` reduced to ~41 KB gzipped).
+
+---
+
 ## [1.0.1] — 2026-11-25
 
 ### Fixed

@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="96" height="96" alt="onyx-icon" src="https://github.com/user-attachments/assets/49ddb2f5-36bf-458b-a16b-5813b79256bb">
+  <img src="./public/onyx-icon.svg" alt="Onyx Logo" width="96" height="96" />
 
   # Onyx
 
@@ -13,7 +13,27 @@
   [![License: MIT](https://img.shields.io/badge/License-MIT-10B981?style=flat-square)](./LICENSE)
 </div>
 
-<img width="1280" height="640" alt="social-preview" src="https://github.com/user-attachments/assets/89981268-08de-4e85-a48c-fd82a3b1d8fe" />
+---
+
+<div align="center">
+  <img src="./docs/screenshots/01-overview-dashboard.png" alt="Onyx Overview Bento Dashboard" width="100%" />
+</div>
+
+---
+
+## Screenshots
+
+| Space Lens — Directory Treemap | Smart Duplicate Finder (`SHA-256`) |
+| :---: | :---: |
+| <img src="./docs/screenshots/02-space-lens-treemap.png" alt="Space Lens Directory Treemap" width="100%" /> | <img src="./docs/screenshots/03-duplicate-finder.png" alt="Smart SHA-256 Duplicate Finder" width="100%" /> |
+| **Analytics & Cleanup Audit Log** | **Command Palette (`Ctrl+K` / `⌘K`)** |
+| <img src="./docs/screenshots/04-analytics-audit-log.png" alt="File Extensions Analytics and Cleanup Audit Log" width="100%" /> | <img src="./docs/screenshots/05-command-palette.png" alt="Command Palette Quick Search" width="100%" /> |
+
+<details>
+  <summary><strong>View Built-In Russian (RU) Localization Screenshot</strong></summary>
+  <br />
+  <img src="./docs/screenshots/06-russian-localization.png" alt="Onyx Russian Localization" width="100%" />
+</details>
 
 ---
 
@@ -197,6 +217,12 @@ onyx/
     ├── Cargo.toml
     └── tauri.conf.json
 ```
+
+---
+
+## Contributing
+
+Contributions, issues, and feature requests are welcome! Please read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`SECURITY.md`](./SECURITY.md) before submitting a Pull Request.
 
 ## License
 

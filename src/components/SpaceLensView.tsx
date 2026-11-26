@@ -1,23 +1,33 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   ArrowUp,
+  Camera,
   ChevronRight,
   FileText,
   Folder,
   FolderOpen,
+  GitCompareArrows,
   HardDrive,
   Home,
   Layers,
   Loader2,
   RefreshCw,
+  Shield,
   Trash2,
+  TrendingDown,
+  TrendingUp,
   Zap,
 } from 'lucide-react';
-import { DiskTelemetry, SpaceLensReport, SpaceNode } from '../types/onyx';
+import {
+  ContextMenuTarget,
+  DiskTelemetry,
+  SpaceLensReport,
+  SpaceNode,
+} from '../types/onyx';
 import { TranslationSet } from '../lib/i18n';
 import { cn, formatBytes, formatCompactCount } from '../lib/format';
-import { runSpaceLensScan } from '../lib/bridge';
+import { runSpaceLensScan, saveSpaceSnapshot } from '../lib/bridge';
 import { BentoCard } from './BentoCard';
 import { SquircleIcon } from './SquircleIcon';
 
@@ -25,8 +35,15 @@ interface SpaceLensViewProps {
   initialPath: string;
   disks?: DiskTelemetry[];
   homeDir?: string;
+  protectedSet: Set<string>;
+  onToggleProtect: (path: string, currentlyProtected: boolean) => Promise<void>;
   onRevealPath: (path: string) => void;
   onTrashNode: (node: SpaceNode) => Promise<boolean>;
+  onOpenContextMenu: (
+    e: React.MouseEvent,
+    item: Omit<ContextMenuTarget, 'x' | 'y'>
+  ) => void;
+  onSnapshotSaved: () => void;
   t: TranslationSet;
 }
 
@@ -40,16 +57,30 @@ const TILE_PALETTES = [
   'from-white/[0.09] via-white/[0.03] to-zinc-950/90 border-white/15 hover:border-white/30',
 ];
 
+function formatSignedDelta(delta: number | null | undefined): string | null {
+  if (delta === null || delta === undefined || Math.abs(delta) < 1024) {
+    return null;
+  }
+  const sign = delta > 0 ? '+' : '−';
+  return `${sign}${formatBytes(Math.abs(delta), 1)}`;
+}
+
 export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
   initialPath,
   disks = [],
   homeDir = '',
+  protectedSet,
+  onToggleProtect,
   onRevealPath,
   onTrashNode,
+  onOpenContextMenu,
+  onSnapshotSaved,
   t,
 }) => {
   const [data, setData] = useState<SpaceLensReport | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [savingSnap, setSavingSnap] = useState<boolean>(false);
+  const [diffOnly, setDiffOnly] = useState<boolean>(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -70,6 +101,18 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
     loadFolder(initialPath || undefined);
   }, [initialPath, loadFolder]);
 
+  const handleSaveBaseline = async () => {
+    if (!data?.currentPath) return;
+    setSavingSnap(true);
+    try {
+      await saveSpaceSnapshot(data.currentPath);
+      onSnapshotSaved();
+      await loadFolder(data.currentPath);
+    } finally {
+      setSavingSnap(false);
+    }
+  };
+
   const handleDrillDown = (node: SpaceNode) => {
     if (node.isDir) {
       loadFolder(node.path);
@@ -79,6 +122,7 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
   };
 
   const handleTrash = async (node: SpaceNode) => {
+    if (node.isProtected || protectedSet.has(node.path.toLowerCase())) return;
     setDeletingId(node.id);
     try {
       const deleted = await onTrashNode(node);
@@ -90,8 +134,17 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
     }
   };
 
+  const visibleNodes = useMemo(() => {
+    const raw = data?.nodes ?? [];
+    if (!diffOnly) return raw;
+    return raw.filter(
+      (n) => n.deltaBytes !== null && n.deltaBytes !== undefined && Math.abs(n.deltaBytes) >= 1024
+    );
+  }, [data, diffOnly]);
+
   const breadcrumbs = data?.breadcrumbs ?? [];
-  const topTiles = (data?.nodes || []).slice(0, 9);
+  const topTiles = visibleNodes.slice(0, 9);
+  const totalDeltaLabel = formatSignedDelta(data?.totalDeltaBytes);
 
   return (
     <div className="grid grid-cols-12 gap-4">
@@ -108,27 +161,89 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {data && (
               <span className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
                 <Zap size={11} className="text-cyan-300" />
                 {data.durationMs} ms
               </span>
             )}
+
+            <button
+              type="button"
+              onClick={() => setDiffOnly((v) => !v)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
+                diffOnly
+                  ? 'border-amber-400/40 bg-amber-500/15 text-amber-200'
+                  : 'border-white/10 bg-white/[0.03] text-zinc-300 hover:border-white/25 hover:text-white'
+              )}
+            >
+              <GitCompareArrows size={11} />
+              <span>{t.diffOnlyToggle}</span>
+            </button>
+
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.96 }}
+              disabled={savingSnap || !data}
+              onClick={handleSaveBaseline}
+              className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50"
+            >
+              <Camera size={11} />
+              <span>{t.saveBaselineBtn}</span>
+            </motion.button>
+
             <motion.button
               type="button"
               whileTap={{ scale: 0.96 }}
               onClick={() => loadFolder(data?.currentPath)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-zinc-300 hover:border-white/25 hover:text-white"
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-xs text-zinc-300 hover:border-white/25 hover:text-white"
             >
               <RefreshCw size={12} className={cn(isLoading && 'animate-spin')} />
             </motion.button>
           </div>
         </div>
 
+        {/* Storage Diff Status Strip */}
+        {data && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[12px] border border-white/[0.08] bg-[#050507]/85 px-3 py-1.5 text-[11px]">
+            <div className="flex items-center gap-2 text-zinc-400">
+              <GitCompareArrows size={12} className="text-cyan-400" />
+              <span>{t.baselineSavedBadge}</span>
+              {data.snapshotTimestamp && (
+                <span className="font-mono text-[10px] text-zinc-500">
+                  ({new Date(data.snapshotTimestamp * 1000).toLocaleDateString()})
+                </span>
+              )}
+            </div>
+            {totalDeltaLabel ? (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold',
+                  (data.totalDeltaBytes ?? 0) > 0
+                    ? 'border-rose-400/35 bg-rose-500/15 text-rose-200'
+                    : 'border-emerald-400/35 bg-emerald-500/15 text-emerald-200'
+                )}
+              >
+                {(data.totalDeltaBytes ?? 0) > 0 ? (
+                  <TrendingUp size={10} />
+                ) : (
+                  <TrendingDown size={10} />
+                )}
+                {totalDeltaLabel} {t.diffSinceBaseline}
+              </span>
+            ) : (
+              <span className="font-mono text-[10px] text-zinc-500">
+                ±0 B {t.diffSinceBaseline}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Quick Drive & Home Switcher Pills */}
         {(disks.length > 0 || homeDir) && (
-          <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             {homeDir && (
               <button
                 type="button"
@@ -202,49 +317,62 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
         </div>
 
         {/* Visual Bento Treemap Mosaic */}
-        <div className="mt-4 min-h-[340px]">
+        <div className="mt-3.5 min-h-[325px]">
           {isLoading ? (
-            <div className="flex h-[340px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-[#050507]">
+            <div className="flex h-[325px] flex-col items-center justify-center rounded-2xl border border-white/[0.07] bg-[#050507]">
               <Loader2 size={24} className="animate-spin text-zinc-300" />
               <span className="mt-2.5 text-xs text-zinc-400">{t.scanning}</span>
             </div>
           ) : topTiles.length === 0 ? (
-            <div className="flex h-[340px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-6 text-center">
+            <div className="flex h-[325px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-6 text-center">
               <Folder size={26} className="text-zinc-500" />
               <p className="mt-2 text-sm text-zinc-300">{t.spaceEmpty}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-12 auto-rows-[108px] gap-2.5">
+            <div className="grid grid-cols-12 auto-rows-[104px] gap-2.5">
               {topTiles.map((tile, idx) => {
                 const spanClass =
                   idx === 0
                     ? 'col-span-12 sm:col-span-7 row-span-2'
                     : idx === 1
-                    ? 'col-span-12 sm:col-span-5 row-span-2'
-                    : idx < 5
-                    ? 'col-span-6 sm:col-span-4 row-span-1'
-                    : 'col-span-6 sm:col-span-3 row-span-1';
+                      ? 'col-span-12 sm:col-span-5 row-span-2'
+                      : idx < 5
+                        ? 'col-span-6 sm:col-span-4 row-span-1'
+                        : 'col-span-6 sm:col-span-3 row-span-1';
 
                 const palette = TILE_PALETTES[idx % TILE_PALETTES.length];
                 const isSelected = selectedNodeId === tile.id;
+                const deltaStr = formatSignedDelta(tile.deltaBytes);
+                const isProt =
+                  Boolean(tile.isProtected) ||
+                  protectedSet.has(tile.path.toLowerCase());
 
                 return (
                   <motion.button
                     key={tile.id}
                     type="button"
-                    layout
-                    initial={{ opacity: 0, scale: 0.96 }}
+                    initial={{ opacity: 0, scale: 0.97 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{
                       type: 'spring',
-                      stiffness: 360,
+                      stiffness: 380,
                       damping: 30,
-                      delay: idx * 0.02,
+                      delay: idx * 0.015,
                     }}
                     whileHover={{ scale: 0.992 }}
                     whileTap={{ scale: 0.975 }}
                     onClick={() => handleDrillDown(tile)}
                     onMouseEnter={() => setSelectedNodeId(tile.id)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      onOpenContextMenu(e, {
+                        name: tile.name,
+                        path: tile.path,
+                        isDir: tile.isDir,
+                        sizeBytes: tile.sizeBytes,
+                        isProtected: isProt,
+                      });
+                    }}
                     className={cn(
                       'group relative flex flex-col justify-between overflow-hidden rounded-[16px] border bg-gradient-to-br p-3.5 text-left transition-all',
                       spanClass,
@@ -252,7 +380,7 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
                       isSelected && 'ring-1 ring-white/40'
                     )}
                   >
-                    <div className="flex items-start justify-between gap-2 w-full">
+                    <div className="flex w-full items-start justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
                         {tile.isDir ? (
                           <Folder size={15} className="shrink-0 text-white/85" />
@@ -262,6 +390,9 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
                         <span className="truncate text-xs font-semibold text-white">
                           {tile.name}
                         </span>
+                        {isProt && (
+                          <Shield size={11} className="shrink-0 text-emerald-300" />
+                        )}
                       </div>
                       <span className="shrink-0 rounded-full bg-black/45 px-2 py-0.5 font-mono text-[10px] text-zinc-200">
                         {tile.sharePercent.toFixed(1)}%
@@ -269,8 +400,22 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
                     </div>
 
                     <div>
-                      <div className="font-mono text-sm sm:text-base font-semibold text-white tabular-nums">
-                        {formatBytes(tile.sizeBytes, 2)}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm sm:text-base font-semibold text-white tabular-nums">
+                          {formatBytes(tile.sizeBytes, 2)}
+                        </span>
+                        {deltaStr && (
+                          <span
+                            className={cn(
+                              'rounded-full px-1.5 py-0.5 font-mono text-[10px] font-semibold',
+                              (tile.deltaBytes ?? 0) > 0
+                                ? 'bg-rose-500/25 text-rose-200'
+                                : 'bg-emerald-500/25 text-emerald-200'
+                            )}
+                          >
+                            {deltaStr}
+                          </span>
+                        )}
                       </div>
                       {idx < 2 && (
                         <div className="mt-0.5 text-[11px] text-zinc-300/80">
@@ -287,7 +432,7 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
         </div>
       </BentoCard>
 
-      {/* Right 5 Cols: Ranked Directory Contents + Actions */}
+      {/* Right 5 Cols: Ranked Directory Contents + Diff Badges + Actions */}
       <BentoCard className="col-span-12 lg:col-span-5 p-6" delay={0.06}>
         <div className="flex items-center justify-between">
           <div>
@@ -299,24 +444,38 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
             </div>
           </div>
           <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-mono text-[11px] text-zinc-400">
-            {data?.nodes.length || 0} items
+            {visibleNodes.length} {t.itemsCountSuffix}
           </span>
         </div>
 
-        <div className="mt-4 flex-1 min-h-[340px] max-h-[410px] overflow-y-auto pr-1 space-y-1.5">
+        <div className="mt-4 flex-1 min-h-[340px] max-h-[430px] overflow-y-auto pr-1 space-y-1.5">
           <AnimatePresence mode="popLayout" initial={false}>
-            {(data?.nodes || []).map((node) => {
+            {visibleNodes.map((node) => {
               const active = selectedNodeId === node.id;
               const isRemoving = deletingId === node.id;
+              const deltaStr = formatSignedDelta(node.deltaBytes);
+              const isProt =
+                Boolean(node.isProtected) ||
+                protectedSet.has(node.path.toLowerCase());
+
               return (
                 <motion.div
-                  layout
                   key={node.id}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: 16 }}
+                  exit={{ opacity: 0, x: 14 }}
                   onMouseEnter={() => setSelectedNodeId(node.id)}
                   onClick={() => handleDrillDown(node)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onOpenContextMenu(e, {
+                      name: node.name,
+                      path: node.path,
+                      isDir: node.isDir,
+                      sizeBytes: node.sizeBytes,
+                      isProtected: isProt,
+                    });
+                  }}
                   className={cn(
                     'group/item relative cursor-pointer overflow-hidden rounded-[13px] border px-3 py-2.5 transition-colors',
                     active
@@ -338,17 +497,54 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
                         <FileText size={15} className="shrink-0 text-zinc-400" />
                       )}
                       <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-zinc-100">
-                          {node.name}
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-[13px] font-medium text-zinc-100">
+                            {node.name}
+                          </span>
+                          {isProt && (
+                            <Shield
+                              size={11}
+                              className="shrink-0 text-emerald-400"
+                            />
+                          )}
+                          {deltaStr && (
+                            <span
+                              className={cn(
+                                'shrink-0 rounded px-1.5 py-0.5 font-mono text-[9.5px] font-semibold',
+                                (node.deltaBytes ?? 0) > 0
+                                  ? 'bg-rose-500/15 text-rose-300'
+                                  : 'bg-emerald-500/15 text-emerald-300'
+                              )}
+                            >
+                              {deltaStr}
+                            </span>
+                          )}
                         </div>
-                        <div className="text-[10px] font-mono text-zinc-500">
+                        <div className="font-mono text-[10px] text-zinc-500">
                           {node.sharePercent.toFixed(1)}% ·{' '}
                           {formatCompactCount(node.fileCount)} {t.filesUnit}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-1.5">
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleProtect(node.path, isProt);
+                        }}
+                        className={cn(
+                          'rounded-lg p-1.5 transition-all',
+                          isProt
+                            ? 'text-emerald-300 opacity-100'
+                            : 'text-zinc-500 opacity-0 hover:bg-white/10 hover:text-emerald-300 group-hover/item:opacity-100'
+                        )}
+                        title={isProt ? t.ctxUnprotectPath : t.ctxProtectPath}
+                      >
+                        <Shield size={13} />
+                      </button>
+
                       <button
                         type="button"
                         onClick={(e) => {
@@ -361,22 +557,27 @@ export const SpaceLensView: React.FC<SpaceLensViewProps> = ({
                         <FolderOpen size={13} />
                       </button>
 
-                      <button
-                        type="button"
-                        disabled={isRemoving}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTrash(node);
-                        }}
-                        className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-300 group-hover/item:opacity-100"
-                        title={t.moveToTrash}
-                      >
-                        {isRemoving ? (
-                          <Loader2 size={13} className="animate-spin text-rose-300" />
-                        ) : (
-                          <Trash2 size={13} />
-                        )}
-                      </button>
+                      {!isProt && (
+                        <button
+                          type="button"
+                          disabled={isRemoving}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTrash(node);
+                          }}
+                          className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-300 group-hover/item:opacity-100"
+                          title={t.moveToTrash}
+                        >
+                          {isRemoving ? (
+                            <Loader2
+                              size={13}
+                              className="animate-spin text-rose-300"
+                            />
+                          ) : (
+                            <Trash2 size={13} />
+                          )}
+                        </button>
+                      )}
 
                       <span className="min-w-[68px] text-right font-mono text-xs font-semibold text-white tabular-nums">
                         {formatBytes(node.sizeBytes, 1)}

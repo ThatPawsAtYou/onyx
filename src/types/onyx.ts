@@ -39,7 +39,8 @@ export type DevJunkCategory =
   | 'python_venv'
   | 'docker_cache'
   | 'gradle_pods'
-  | 'web_cache';
+  | 'web_cache'
+  | 'game_redist';
 
 export interface DevJunkItem {
   id: string;
@@ -50,6 +51,7 @@ export interface DevJunkItem {
   sizeBytes: number;
   fileCount: number;
   modifiedDaysAgo: number;
+  isProtected?: boolean;
 }
 
 export interface DevJunkScanReport {
@@ -61,7 +63,15 @@ export interface DevJunkScanReport {
 
 export interface SystemCacheItem {
   id: string;
-  category: 'os_temp' | 'browser_cache' | 'pkg_cache' | 'system_logs' | string;
+  category:
+    | 'os_temp'
+    | 'gpu_shader'
+    | 'game_cache'
+    | 'app_cache'
+    | 'browser_cache'
+    | 'pkg_cache'
+    | 'system_logs'
+    | string;
   title: string;
   subtitle: string;
   path: string;
@@ -69,6 +79,7 @@ export interface SystemCacheItem {
   sizeBytes: number;
   fileCount: number;
   safeToPurge: boolean;
+  isProtected?: boolean;
 }
 
 export interface SystemCacheReport {
@@ -88,6 +99,9 @@ export interface LargeFileItem {
   category: LargeFileCategory | string;
   sizeBytes: number;
   modifiedDaysAgo: number;
+  isVirtualDisk?: boolean;
+  compactHint?: string | null;
+  isProtected?: boolean;
 }
 
 export interface LargeFilesReport {
@@ -107,6 +121,8 @@ export interface SpaceNode {
   sharePercent: number;
   fileCount: number;
   modifiedDaysAgo: number;
+  deltaBytes?: number | null;
+  isProtected?: boolean;
 }
 
 export interface SpaceLensReport {
@@ -116,6 +132,9 @@ export interface SpaceLensReport {
   nodes: SpaceNode[];
   totalBytes: number;
   durationMs: number;
+  hasBaseline?: boolean;
+  snapshotTimestamp?: number | null;
+  totalDeltaBytes?: number | null;
 }
 
 export interface DuplicateFileEntry {
@@ -123,6 +142,7 @@ export interface DuplicateFileEntry {
   parentDir: string;
   modifiedDaysAgo: number;
   isOriginal: boolean;
+  isProtected?: boolean;
 }
 
 export interface DuplicateGroup {
@@ -172,6 +192,7 @@ export interface CleanupHistoryEntry {
 export interface TrashTarget {
   path: string;
   contentsOnly?: boolean;
+  expectedBytes?: number;
 }
 
 export interface PurgeReport {
@@ -187,5 +208,82 @@ export interface DirectoryEntry {
   path: string;
 }
 
-export type ActiveView = 'dashboard' | 'spacelens' | 'duplicates' | 'analytics';
+export interface ScanProgress {
+  isRunning: boolean;
+  phase: string;
+  filesScanned: number;
+  bytesScanned: number;
+  currentPath: string;
+  cancelled: boolean;
+}
+
+export interface StorageSnapshotMeta {
+  id: string;
+  targetPath: string;
+  timestampUnix: number;
+  totalBytes: number;
+  childCount: number;
+}
+
+export interface ProtectedPathEntry {
+  path: string;
+  label: string;
+  addedUnix: number;
+}
+
+export interface InstalledAppItem {
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  installLocation?: string | null;
+  sizeBytes: number;
+  uninstallCommand?: string | null;
+  source: string;
+}
+
+export interface LeftoverItem {
+  id: string;
+  name: string;
+  path: string;
+  locationLabel: string;
+  reason: string;
+  confidence: string;
+  sizeBytes: number;
+  fileCount: number;
+  modifiedDaysAgo: number;
+  isProtected: boolean;
+}
+
+export interface AppsAndLeftoversReport {
+  apps: InstalledAppItem[];
+  leftovers: LeftoverItem[];
+  redistItems: DevJunkItem[];
+  totalLeftoverBytes: number;
+  totalRedistBytes: number;
+  durationMs: number;
+}
+
+export interface ShellIntegrationStatus {
+  supported: boolean;
+  contextMenuEnabled: boolean;
+  startupPath?: string | null;
+}
+
+export interface ContextMenuTarget {
+  x: number;
+  y: number;
+  name: string;
+  path: string;
+  isDir: boolean;
+  sizeBytes?: number;
+  isProtected?: boolean;
+}
+
+export type ActiveView =
+  | 'dashboard'
+  | 'spacelens'
+  | 'duplicates'
+  | 'apps'
+  | 'analytics';
 export type Lang = 'ru' | 'en';

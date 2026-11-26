@@ -10,6 +10,7 @@ import {
   HardDrive,
   Layers,
   LayoutGrid,
+  PackageSearch,
   RefreshCw,
   Search,
   Terminal,
@@ -89,6 +90,14 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
         subtitle: t.dupTitle,
         icon: Copy,
         onSelect: () => onNavigate('duplicates'),
+      },
+      {
+        id: 'nav-apps',
+        group: t.cmdViewsGroup,
+        title: t.navApps,
+        subtitle: t.appsSubtitle,
+        icon: PackageSearch,
+        onSelect: () => onNavigate('apps'),
       },
       {
         id: 'nav-analytics',
@@ -187,7 +196,9 @@ export const CommandPaletteModal: React.FC<CommandPaletteModalProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActiveIndex((prev) => (filtered.length ? (prev + 1) % filtered.length : 0));
+      setActiveIndex((prev) =>
+        filtered.length ? (prev + 1) % filtered.length : 0
+      );
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActiveIndex((prev) =>

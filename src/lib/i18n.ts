@@ -1,4 +1,15 @@
 import { Lang } from '../types/onyx';
+export type { Lang };
+
+export function detectInitialLang(): Lang {
+  try {
+    const saved = window.localStorage.getItem('onyx-lang');
+    if (saved === 'en' || saved === 'ru') return saved;
+  } catch {
+    // Ignore localStorage restrictions
+  }
+  return 'en';
+}
 
 export const translations = {
   ru: {
@@ -6,13 +17,20 @@ export const translations = {
     navDashboard: 'Обзор',
     navSpaceLens: 'Карта диска',
     navDuplicates: 'Дубликаты',
+    navApps: 'Программы и Хвосты',
     navAnalytics: 'Аналитика и Журнал',
     cmdPaletteHint: 'Поиск и команды',
     scanAll: 'Сканировать',
     scanning: 'Сканирование...',
+    stopScan: 'Стоп',
     reclaimedSession: 'Освобождено',
     chooseFolder: 'Корень поиска',
     settings: 'Настройки',
+
+    // Live Progress & Drag-Drop
+    liveProgressScanning: 'Анализ файловой системы',
+    dropOverlayTitle: 'Отпустите папку для мгновенного анализа в Space Lens',
+    dropOverlaySubtitle: 'Построение карты весов и сравнение со снимком (Storage Diff)',
 
     // Storage Card
     storageTitle: 'Диски и Хранилище',
@@ -27,13 +45,13 @@ export const translations = {
     reclaimableFound: 'Доступно к очистке',
     segSystem: 'Система и данные',
     segDev: 'Dev-артефакты',
-    segCache: 'Кэш ОС',
+    segCache: 'Кэш ОС и GPU',
     segLarge: 'Тяжёлые файлы',
     segFree: 'Свободно',
 
     // Dev Junk Card
-    devTitle: 'Очистка для разработчиков',
-    devSubtitle: 'node_modules, target (Rust), .venv, Docker, Gradle и кэши сборки',
+    devTitle: 'Очистка для разработчиков и игр',
+    devSubtitle: 'node_modules, target (Rust), .venv, Docker, Gradle и _CommonRedist',
     allEcosystems: 'Все',
     ageAll: 'Любой возраст',
     age7d: 'Старше 7 дн.',
@@ -51,42 +69,57 @@ export const translations = {
     revealFolder: 'Показать в проводнике',
 
     // System Cache Card
-    cacheTitle: 'Системный мусор',
-    cacheSubtitle: 'Временные файлы Temp, кэш браузеров, пакеты и логи ОС',
-    purgeBtn: 'Purge',
+    cacheTitle: 'Системный, игровой и GPU кэш',
+    cacheSubtitle: 'Шейдеры DirectX/NVIDIA/AMD, Steam/Epic, Telegram/Discord/Spotify и Temp',
+    purgeBtn: 'Очистить',
     purgingBtn: 'Очистка...',
     purgedDone: 'Очищено',
     freedVisualLabel: 'Освобождено места за сессию',
     readyToPurge: 'Готово к безопасной очистке',
-    safeRecycleBadge: 'Безопасно · Trash / Temp Guard',
+    safeRecycleBadge: 'Безопасно · Сессии и логины защищены',
     rescanCache: 'Обновить',
+    activeCountSuffix: 'активно',
+    itemsCountSuffix: 'объектов',
+    threadsSuffix: 'потоков',
+    cacheFilterAll: 'Все',
+    cacheFilterGpu: 'GPU и Игры',
+    cacheFilterApps: 'Мессенджеры',
+    cacheFilterBrowser: 'Браузеры и ОС',
 
-    // Large Files Card
-    largeTitle: 'Тяжёлые файлы',
-    largeSubtitle: 'Инспектор крупных объектов с фильтрацией и быстрым поиском',
+    // Large Files Card & Virtual Disks
+    largeTitle: 'Тяжёлые файлы и Виртуальные диски',
+    largeSubtitle: 'Инспектор крупных файлов + детектор раздутых дисков WSL2 / Docker (.vhdx)',
     searchFilesPlaceholder: 'Фильтр по имени или пути...',
     catAll: 'Все',
     catVideo: 'Видео',
     catArchive: 'Архивы',
     catInstaller: 'Установщики',
-    catDiskData: 'Образы и данные',
+    catDiskData: 'Образы и VHDX',
     moveToTrash: 'В корзину',
     largeEmptyTitle: 'Файлы выше выбранного порога не найдены',
     largeEmptyDesc: 'Попробуйте снизить порог размера (например, >100 MB или >10 MB) или сменить диск.',
+    virtualDiskBadge: 'WSL2 / Docker VHDX',
+    copyCompactCmd: 'Команда сжатия',
+    copiedCompactToast: 'Команда безопасного сжатия VHDX скопирована в буфер обмена',
 
-    // Space Lens View
-    spaceLensTitle: 'Space Lens — Интерактивная карта пространства',
-    spaceLensSubtitle: 'Наглядная структура папок по реальному весу с мгновенным погружением вглубь',
+    // Space Lens & Storage Diff
+    spaceLensTitle: 'Space Lens — Карта диска и Storage Diff',
+    spaceLensSubtitle: 'Пропорциональная карта папок с отслеживанием прироста с прошлого снимка',
     upFolder: 'Наверх',
-    drillDownHint: 'Нажмите на папку для анализа содержимого',
-    treemapShare: 'доля раздела',
+    drillDownHint: 'Нажмите на папку для входа · ПКМ — быстрые действия',
+    treemapShare: 'доля папки',
     folderBadge: 'Папка',
     fileBadge: 'Файл',
     spaceEmpty: 'Папка пуста или недоступна для чтения',
+    saveBaselineBtn: 'Обновить снимок',
+    diffOnlyToggle: 'Только изменения',
+    baselineSavedBadge: 'Базовый снимок создан',
+    diffSinceBaseline: 'с прошлого снимка',
+    snapshotSavedToast: 'Базовый снимок папки обновлён для Storage Diff',
 
     // Duplicates View
     dupTitle: 'Умный поиск дубликатов (SHA-256)',
-    dupSubtitle: 'Трёхэтапный криптографический движок: размер → краевая сигнатура 8 КБ → полный SHA-256',
+    dupSubtitle: 'Трёхэтапный движок: точный размер → краевая сигнатура 16 КБ → полный SHA-256',
     dupWasted: 'Потеряно на копиях',
     dupScannedFiles: 'Проверено файлов',
     dupGroupsCount: 'Групп дубликатов',
@@ -96,6 +129,23 @@ export const translations = {
     cleanDuplicatesBtn: 'Удалить выбранные копии',
     dupEmptyTitle: 'Дубликаты не обнаружены',
     dupEmptyDesc: 'В выбранной директории нет идентичных файлов выше заданного порога размера.',
+
+    // Apps & Leftovers View (NEW in v1.1.0)
+    appsTitle: 'Установленные программы и Поиск «хвостов»',
+    appsSubtitle: 'Осиротевшие папки AppData/кэша удалённого ПО, редистрибутивы игр и реестр приложений',
+    tabLeftovers: 'Хвосты и Редистрибутивы',
+    tabInstalledApps: 'Установленные программы',
+    leftoversFoundLabel: 'Найдено хвостов и редистрибутивов',
+    installedCountLabel: 'Установлено программ',
+    cleanLeftoversBtn: 'В корзину выбранное',
+    leftoverEmptyTitle: 'Осиротевших хвостов не обнаружено',
+    leftoverEmptyDesc: 'Все папки данных в профиле соответствуют установленным программам или активны.',
+    searchAppsPlaceholder: 'Поиск по названию программы или издателю...',
+    uninstallBtn: 'Деинсталлировать',
+    inspectFolderBtn: 'В Space Lens',
+    highConfidence: 'Высокая точность',
+    mediumConfidence: 'Проверка перед очисткой',
+    redistBadge: 'Игровой Redist',
 
     // Analytics & History View
     extTitle: 'Профиль типов файлов',
@@ -113,25 +163,45 @@ export const translations = {
     clearHistoryBtn: 'Очистить журнал',
     historyEmpty: 'История очисток пока пуста. Выполните очистку кэша или Dev-артефактов.',
 
+    // Context Menu & Whitelist Protection
+    ctxOpenSpaceLens: 'Анализировать в Space Lens',
+    ctxRevealExplorer: 'Показать в Проводнике',
+    ctxCopyPath: 'Скопировать полный путь',
+    ctxProtectPath: 'Защитить (в белый список)',
+    ctxUnprotectPath: 'Снять защиту',
+    ctxMoveToTrash: 'Переместить в корзину',
+    protectedBadge: 'Защищено',
+    toastPathCopied: 'Путь скопирован в буфер обмена',
+    toastProtectedAdded: 'Путь добавлен в белый список защиты',
+    toastProtectedRemoved: 'Защита пути снята',
+
     // Command Palette & Modals
-    cmdPlaceholder: 'Введите команду, имя файла, папку проекта или раздел...',
+    cmdPlaceholder: 'Введите команду, имя файла, программу, папку проекта или диск...',
     cmdActionsGroup: 'Быстрые команды',
     cmdViewsGroup: 'Навигация по экранам',
     cmdItemsGroup: 'Найденные объекты на диске',
-    cmdSmartClean: 'Умная очистка всего выбранного кэша ОС',
-    cmdExportAudit: 'Скачать полный Markdown-отчёт о состоянии дисков',
+    cmdSmartClean: 'Умная очистка всего выбранного кэша ОС и GPU',
+    cmdExportAudit: 'Сохранить полный Markdown-отчёт в Downloads',
     cmdNoResults: 'Ничего не найдено по вашему запросу',
 
     folderModalTitle: 'Директория сканирования',
     folderModalDesc: 'Выберите корневую папку для поиска Dev-мусора, дубликатов и крупных файлов.',
     applyRoot: 'Сканировать выбранную папку',
     resetDefaultRoot: 'Домашняя директория',
-    settingsTitle: 'Настройки движка Onyx',
-    settingsDesc: 'Конфигурация безопасности, потоков Rust и системных ограничений.',
+    settingsTitle: 'Настройки и Защита Onyx',
+    settingsDesc: 'Белый список исключений, интеграция с Проводником Windows и параметры безопасности.',
+    explorerMenuLabel: 'Контекстное меню Проводника Windows («Inspect in Onyx»)',
+    explorerMenuDesc: 'Добавляет быстрый запуск анализа любой папки по правому клику без прав администратора (HKCU).',
+    explorerWinOnly: 'Доступно на Windows 10/11',
+    whitelistTitle: 'Белый список защищённых путей (Whitelist & .onyxignore)',
+    whitelistDesc: 'Эти папки и файлы никогда не будут удалены. Также поддерживается файл-маркер .onyxignore в корне проекта.',
+    whitelistInputPlaceholder: 'Введите путь для защиты (например, D:\\Projects\\Core)...',
+    whitelistAddBtn: 'Защитить',
+    whitelistEmpty: 'Пользовательский список исключений пока пуст.',
     safeTrashLabel: 'Безопасное удаление в Корзину ОС',
-    safeTrashDesc: 'Все удаления маршрутизируются через системную Корзину (Recycle Bin / Freedesktop Trash) с блокировкой системных каталогов.',
-    engineInfoLabel: 'Многопоточный Rust-движок',
-    engineInfoDesc: 'Используются пулы потоков Rayon + jwalk с нулевой внешней сетевой телеметрией.',
+    safeTrashDesc: 'Все удаления маршрутизируются через системную Корзину (IFileOperation / Trash) с защитой системных папок.',
+    engineInfoLabel: 'Локальный многопоточный движок',
+    engineInfoDesc: '100% локальное выполнение на всех ядрах процессора без внешней сетевой телеметрии.',
     protectedPathsLabel: 'Защищённые системные директории',
     close: 'Закрыть',
     toastCleaned: 'Перемещено в корзину',
@@ -143,13 +213,20 @@ export const translations = {
     navDashboard: 'Overview',
     navSpaceLens: 'Space Lens',
     navDuplicates: 'Duplicates',
+    navApps: 'Apps & Leftovers',
     navAnalytics: 'Analytics & Log',
     cmdPaletteHint: 'Search & Commands',
     scanAll: 'Scan',
     scanning: 'Scanning...',
+    stopScan: 'Stop',
     reclaimedSession: 'Reclaimed',
     chooseFolder: 'Scan Root',
     settings: 'Settings',
+
+    // Live Progress & Drag-Drop
+    liveProgressScanning: 'Scanning filesystem',
+    dropOverlayTitle: 'Drop folder anywhere to inspect in Space Lens',
+    dropOverlaySubtitle: 'Instant directory treemap & Storage Diff analysis',
 
     // Storage Card
     storageTitle: 'Drives & Storage',
@@ -164,13 +241,13 @@ export const translations = {
     reclaimableFound: 'Reclaimable Space',
     segSystem: 'System & Data',
     segDev: 'Dev Junk',
-    segCache: 'System Cache',
+    segCache: 'OS & GPU Cache',
     segLarge: 'Large Files',
     segFree: 'Free',
 
     // Dev Junk Card
-    devTitle: 'Dev Junk Cleaner',
-    devSubtitle: 'node_modules, target (Rust), .venv, Docker, Gradle & bundler caches',
+    devTitle: 'Dev & Game Junk Cleaner',
+    devSubtitle: 'node_modules, target (Rust), .venv, Docker, Gradle & _CommonRedist',
     allEcosystems: 'All',
     ageAll: 'Any age',
     age7d: 'Older > 7d',
@@ -188,42 +265,57 @@ export const translations = {
     revealFolder: 'Reveal in File Manager',
 
     // System Cache Card
-    cacheTitle: 'System Cache',
-    cacheSubtitle: 'OS Temp scratchpad, browser caches, package tarballs & logs',
+    cacheTitle: 'System, Gaming & GPU Cache',
+    cacheSubtitle: 'DirectX/NVIDIA/AMD shaders, Steam/Epic, Telegram/Discord/Spotify & Temp',
     purgeBtn: 'Purge',
     purgingBtn: 'Purging...',
     purgedDone: 'Purged',
     freedVisualLabel: 'Total Space Freed This Session',
     readyToPurge: 'Ready for safe one-click purge',
-    safeRecycleBadge: 'Protected · Recycle Bin Guard',
+    safeRecycleBadge: 'Protected · Logins & Sessions Intact',
     rescanCache: 'Refresh',
+    activeCountSuffix: 'active',
+    itemsCountSuffix: 'items',
+    threadsSuffix: 'Threads',
+    cacheFilterAll: 'All',
+    cacheFilterGpu: 'GPU & Gaming',
+    cacheFilterApps: 'Apps & Chat',
+    cacheFilterBrowser: 'Browsers & OS',
 
-    // Large Files Card
-    largeTitle: 'Large Files Inspector',
-    largeSubtitle: 'High-volume file radar with category & instant name filtering',
+    // Large Files Card & Virtual Disks
+    largeTitle: 'Large Files & Virtual Disks',
+    largeSubtitle: 'High-volume file radar + bloated WSL2 / Docker (.vhdx) detector',
     searchFilesPlaceholder: 'Filter by filename or path...',
     catAll: 'All',
     catVideo: 'Video',
     catArchive: 'Archives',
     catInstaller: 'Installers',
-    catDiskData: 'Disk & Data',
+    catDiskData: 'Disk & VHDX',
     moveToTrash: 'Move to Trash',
     largeEmptyTitle: 'No files above active threshold',
     largeEmptyDesc: 'Lower the size threshold pill (e.g. >100 MB or >10 MB) or switch drives.',
+    virtualDiskBadge: 'WSL2 / Docker VHDX',
+    copyCompactCmd: 'Copy Shrink Cmd',
+    copiedCompactToast: 'Safe VHDX compaction command copied to clipboard',
 
-    // Space Lens View
-    spaceLensTitle: 'Space Lens — Interactive Directory Treemap',
-    spaceLensSubtitle: 'Visual proportional footprint map with instant subfolder drill-down',
+    // Space Lens & Storage Diff
+    spaceLensTitle: 'Space Lens — Treemap & Storage Diff',
+    spaceLensSubtitle: 'Proportional footprint map with folder growth tracking since last snapshot',
     upFolder: 'Up',
-    drillDownHint: 'Click any folder tile to drill inside',
+    drillDownHint: 'Click folder to drill inside · Right-click for actions',
     treemapShare: 'of folder',
     folderBadge: 'Folder',
     fileBadge: 'File',
     spaceEmpty: 'Directory is empty or inaccessible',
+    saveBaselineBtn: 'Update Snapshot',
+    diffOnlyToggle: 'Changed Only',
+    baselineSavedBadge: 'Baseline Snapshot Active',
+    diffSinceBaseline: 'since last snapshot',
+    snapshotSavedToast: 'Storage Diff baseline snapshot updated',
 
     // Duplicates View
     dupTitle: 'Smart Duplicate Finder (SHA-256)',
-    dupSubtitle: '3-stage parallel Rust engine: exact size → 8 KB edge signature → full SHA-256',
+    dupSubtitle: '3-stage parallel engine: exact size → 16 KB edge signature → full SHA-256',
     dupWasted: 'Wasted on Copies',
     dupScannedFiles: 'Scanned Files',
     dupGroupsCount: 'Duplicate Groups',
@@ -233,6 +325,23 @@ export const translations = {
     cleanDuplicatesBtn: 'Trash Selected Copies',
     dupEmptyTitle: 'Zero duplicate files found',
     dupEmptyDesc: 'No byte-identical files detected above the selected minimum size.',
+
+    // Apps & Leftovers View (NEW in v1.1.0)
+    appsTitle: 'Installed Apps & Orphaned Leftover Hunter',
+    appsSubtitle: 'Uninstalled software remnants in AppData/Config, game redistributables & app inventory',
+    tabLeftovers: 'Leftovers & Game Redist',
+    tabInstalledApps: 'Installed Applications',
+    leftoversFoundLabel: 'Orphaned Leftovers & Redist',
+    installedCountLabel: 'Installed Applications',
+    cleanLeftoversBtn: 'Trash Selected Items',
+    leftoverEmptyTitle: 'Zero orphaned app leftovers detected',
+    leftoverEmptyDesc: 'All user profile application folders belong to installed or active software.',
+    searchAppsPlaceholder: 'Filter by application name or publisher...',
+    uninstallBtn: 'Uninstall',
+    inspectFolderBtn: 'Space Lens',
+    highConfidence: 'High Confidence',
+    mediumConfidence: 'Review Recommended',
+    redistBadge: 'Game Redist',
 
     // Analytics & History View
     extTitle: 'File Extensions Footprint',
@@ -250,31 +359,51 @@ export const translations = {
     clearHistoryBtn: 'Clear Log',
     historyEmpty: 'No cleanup events recorded yet. Run a cache or dev junk cleanup first.',
 
+    // Context Menu & Whitelist Protection
+    ctxOpenSpaceLens: 'Inspect in Space Lens',
+    ctxRevealExplorer: 'Reveal in Explorer',
+    ctxCopyPath: 'Copy Full Path',
+    ctxProtectPath: 'Protect Path (Whitelist)',
+    ctxUnprotectPath: 'Remove Protection',
+    ctxMoveToTrash: 'Move to Recycle Bin',
+    protectedBadge: 'Protected',
+    toastPathCopied: 'Full path copied to clipboard',
+    toastProtectedAdded: 'Path added to Protected Whitelist',
+    toastProtectedRemoved: 'Path removed from Protected Whitelist',
+
     // Command Palette & Modals
-    cmdPlaceholder: 'Type a command, filename, project folder, or drive...',
+    cmdPlaceholder: 'Type a command, filename, installed app, project folder, or drive...',
     cmdActionsGroup: 'Quick Actions',
     cmdViewsGroup: 'Switch Workspace View',
     cmdItemsGroup: 'Discovered Disk Objects',
-    cmdSmartClean: 'Purge all active System Cache items',
-    cmdExportAudit: 'Download full Markdown Storage Audit Report',
+    cmdSmartClean: 'Purge all active System & GPU Cache items',
+    cmdExportAudit: 'Save full Markdown Storage Audit Report to Downloads',
     cmdNoResults: 'No matching commands or files',
 
-    folderModalTitle: 'Select Scan Root Directory',
-    folderModalDesc: 'Choose a workspace directory for Dev Junk, Duplicates, and Large Files.',
-    applyRoot: 'Scan Selected Directory',
-    resetDefaultRoot: 'Home Directory',
-    settingsTitle: 'Onyx Engine Settings',
-    settingsDesc: 'Safety guardrails, multi-threaded Rust scanner & OS protections.',
-    safeTrashLabel: 'Safe OS Recycle Bin / Trash Routing',
-    safeTrashDesc: 'All deletions route through native OS Trash APIs with strict kernel/system path protection.',
-    engineInfoLabel: 'Native Multi-Threaded Rust Engine',
-    engineInfoDesc: 'Powered by Rayon work-stealing thread pools + jwalk with zero external telemetry.',
-    protectedPathsLabel: 'Hardware-Protected System Paths',
+    folderModalTitle: 'Scan Root Directory',
+    folderModalDesc: 'Choose a workspace directory or drive for Dev Junk, Duplicates & Large Files.',
+    applyRoot: 'Scan Selected Folder',
+    resetDefaultRoot: 'User Home Directory',
+    settingsTitle: 'Onyx Settings & Protection',
+    settingsDesc: 'Protected paths whitelist, Windows Explorer shell integration & safety guardrails.',
+    explorerMenuLabel: 'Windows Explorer Context Menu ("Inspect in Onyx")',
+    explorerMenuDesc: 'Adds a right-click folder shortcut in Windows Explorer with zero admin prompts (HKCU).',
+    explorerWinOnly: 'Windows 10/11 Only',
+    whitelistTitle: 'Protected Paths Whitelist & .onyxignore',
+    whitelistDesc: 'Protected paths can never be moved to the Recycle Bin. Placing a .onyxignore file in a project root also protects it automatically.',
+    whitelistInputPlaceholder: 'Enter path to protect (e.g. D:\\Projects\\Core)...',
+    whitelistAddBtn: 'Protect',
+    whitelistEmpty: 'No custom protected paths added yet.',
+    safeTrashLabel: 'OS Recycle Bin Guard',
+    safeTrashDesc: 'Deletions route through the native OS Recycle Bin (COM IFileOperation / Trash) with strict OS directory blocks.',
+    engineInfoLabel: 'Local Multi-Threaded Engine',
+    engineInfoDesc: '100% offline parallel filesystem execution across all CPU cores with zero network telemetry.',
+    protectedPathsLabel: 'Protected System Directories',
     close: 'Close',
-    toastCleaned: 'Moved safely to Trash',
-    toastRescanned: 'System telemetry refreshed',
-    toastExported: 'Storage audit report downloaded',
+    toastCleaned: 'Moved to Recycle Bin',
+    toastRescanned: 'Storage telemetry refreshed',
+    toastExported: 'Storage audit report saved',
   },
-} as const;
+};
 
-export type TranslationSet = (typeof translations)[Lang];
+export type TranslationSet = (typeof translations)['en'];

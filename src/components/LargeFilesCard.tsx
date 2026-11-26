@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   Archive,
+  ClipboardCopy,
   Database,
   Disc,
   Film,
@@ -11,9 +12,10 @@ import {
   Loader2,
   ScanSearch,
   Search,
+  Shield,
   Trash2,
 } from 'lucide-react';
-import { LargeFileItem } from '../types/onyx';
+import { ContextMenuTarget, LargeFileItem } from '../types/onyx';
 import { TranslationSet } from '../lib/i18n';
 import { cn, formatBytes } from '../lib/format';
 import { BentoCard } from './BentoCard';
@@ -23,9 +25,16 @@ interface LargeFilesCardProps {
   items: LargeFileItem[];
   minSizeMb: number;
   isScanning?: boolean;
+  protectedSet: Set<string>;
+  onToggleProtect: (path: string, currentlyProtected: boolean) => Promise<void>;
   onChangeThresholdMb: (mb: number) => void;
   onTrashFile: (file: LargeFileItem) => Promise<void>;
   onRevealPath: (path: string) => void;
+  onCopyCompactCmd: (cmd: string) => void;
+  onOpenContextMenu: (
+    e: React.MouseEvent,
+    item: Omit<ContextMenuTarget, 'x' | 'y'>
+  ) => void;
   t: TranslationSet;
 }
 
@@ -40,13 +49,18 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
   items,
   minSizeMb,
   isScanning = false,
+  protectedSet,
+  onToggleProtect,
   onChangeThresholdMb,
   onTrashFile,
   onRevealPath,
+  onCopyCompactCmd,
+  onOpenContextMenu,
   t,
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const deferredQuery = useDeferredValue(searchQuery);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const categories = [
@@ -58,7 +72,7 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
   ];
 
   const filteredFiles = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     return items.filter((f) => {
       if (activeCategory !== 'all' && f.category !== activeCategory) return false;
       if (q && !f.name.toLowerCase().includes(q) && !f.path.toLowerCase().includes(q)) {
@@ -66,7 +80,7 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
       }
       return true;
     });
-  }, [items, activeCategory, searchQuery]);
+  }, [items, activeCategory, deferredQuery]);
 
   const maxFileSize = useMemo(
     () => Math.max(1, ...filteredFiles.map((f) => f.sizeBytes)),
@@ -89,6 +103,7 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
   };
 
   const handleTrash = async (file: LargeFileItem) => {
+    if (file.isProtected || protectedSet.has(file.path.toLowerCase())) return;
     setDeletingId(file.id);
     try {
       await onTrashFile(file);
@@ -99,7 +114,6 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
 
   return (
     <BentoCard className="col-span-12 lg:col-span-7 p-6" delay={0.14}>
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <SquircleIcon icon={Disc} tone="emerald" size="md" />
@@ -116,7 +130,6 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
           </div>
         </div>
 
-        {/* Threshold Selector Pills */}
         <div className="flex items-center gap-1 rounded-full border border-white/10 bg-[#050507] p-0.5">
           {THRESHOLD_OPTIONS.map((opt) => {
             const active = minSizeMb === opt.mb;
@@ -235,16 +248,26 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
                 Math.round((file.sizeBytes / maxFileSize) * 100)
               );
               const isRemoving = deletingId === file.id;
+              const isProt =
+                Boolean(file.isProtected) ||
+                protectedSet.has(file.path.toLowerCase());
 
               return (
                 <motion.div
-                  layout
                   key={file.id}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: 18, scale: 0.97 }}
-                  transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                  whileHover={{ scale: 0.996 }}
+                  exit={{ opacity: 0, x: 16, scale: 0.97 }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onOpenContextMenu(e, {
+                      name: file.name,
+                      path: file.path,
+                      isDir: false,
+                      sizeBytes: file.sizeBytes,
+                      isProtected: isProt,
+                    });
+                  }}
                   className="group/file relative overflow-hidden rounded-[14px] border border-white/[0.08] bg-white/[0.02] px-3.5 py-2.5 transition-colors hover:border-white/[0.16] hover:bg-white/[0.04]"
                 >
                   <div
@@ -258,11 +281,11 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
                       <SquircleIcon icon={visual.icon} tone={visual.tone} size="sm" />
 
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <Tooltip.Provider delayDuration={250}>
                             <Tooltip.Root>
                               <Tooltip.Trigger asChild>
-                                <span className="truncate text-[13px] font-medium text-zinc-100 max-w-[240px] sm:max-w-[320px]">
+                                <span className="truncate text-[13px] font-medium text-zinc-100 max-w-[220px] sm:max-w-[290px]">
                                   {file.name}
                                 </span>
                               </Tooltip.Trigger>
@@ -280,10 +303,22 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
                           <span className="rounded border border-white/10 bg-white/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
                             {file.extension}
                           </span>
+
+                          {file.isVirtualDisk && (
+                            <span className="rounded-md border border-indigo-400/30 bg-indigo-500/15 px-1.5 py-0.5 text-[10px] font-medium text-indigo-200">
+                              {t.virtualDiskBadge}
+                            </span>
+                          )}
+
+                          {isProt && (
+                            <span className="rounded-md border border-emerald-400/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                              {t.protectedBadge}
+                            </span>
+                          )}
                         </div>
 
                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500">
-                          <span className="truncate max-w-[250px] font-mono">
+                          <span className="truncate max-w-[240px] font-mono">
                             {file.parentDir}
                           </span>
                           <span>·</span>
@@ -296,7 +331,33 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {file.isVirtualDisk && file.compactHint && (
+                        <button
+                          type="button"
+                          onClick={() => onCopyCompactCmd(file.compactHint!)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-indigo-400/30 bg-indigo-500/15 px-2 py-1 text-[10.5px] font-medium text-indigo-200 hover:bg-indigo-500/25"
+                          title={file.compactHint}
+                        >
+                          <ClipboardCopy size={11} />
+                          <span className="hidden sm:inline">{t.copyCompactCmd}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => onToggleProtect(file.path, isProt)}
+                        className={cn(
+                          'rounded-lg p-1.5 transition-all',
+                          isProt
+                            ? 'text-emerald-300 opacity-100'
+                            : 'text-zinc-500 opacity-0 hover:bg-white/10 hover:text-emerald-300 group-hover/file:opacity-100'
+                        )}
+                        title={isProt ? t.ctxUnprotectPath : t.ctxProtectPath}
+                      >
+                        <Shield size={13} />
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => onRevealPath(file.path)}
@@ -306,22 +367,24 @@ export const LargeFilesCard: React.FC<LargeFilesCardProps> = ({
                         <FolderOpen size={14} />
                       </button>
 
-                      <motion.button
-                        type="button"
-                        disabled={isRemoving}
-                        whileTap={{ scale: 0.92 }}
-                        onClick={() => handleTrash(file)}
-                        className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-300 group-hover/file:opacity-100"
-                        title={t.moveToTrash}
-                      >
-                        {isRemoving ? (
-                          <Loader2 size={14} className="animate-spin text-rose-300" />
-                        ) : (
-                          <Trash2 size={14} />
-                        )}
-                      </motion.button>
+                      {!isProt && !file.isVirtualDisk && (
+                        <motion.button
+                          type="button"
+                          disabled={isRemoving}
+                          whileTap={{ scale: 0.92 }}
+                          onClick={() => handleTrash(file)}
+                          className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-rose-500/15 hover:text-rose-300 group-hover/file:opacity-100"
+                          title={t.moveToTrash}
+                        >
+                          {isRemoving ? (
+                            <Loader2 size={14} className="animate-spin text-rose-300" />
+                          ) : (
+                            <Trash2 size={14} />
+                          )}
+                        </motion.button>
+                      )}
 
-                      <span className="min-w-[74px] text-right font-mono text-[13px] font-semibold text-white tabular-nums">
+                      <span className="min-w-[72px] text-right font-mono text-[13px] font-semibold text-white tabular-nums">
                         {formatBytes(file.sizeBytes, 2)}
                       </span>
                     </div>

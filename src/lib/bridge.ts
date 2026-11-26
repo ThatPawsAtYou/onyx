@@ -1,13 +1,18 @@
 import { invoke } from '@tauri-apps/api/core';
 import {
+  AppsAndLeftoversReport,
   CleanupHistoryEntry,
   DevJunkScanReport,
   DirectoryEntry,
   DuplicatesReport,
   ExtensionsReport,
   LargeFilesReport,
+  ProtectedPathEntry,
   PurgeReport,
+  ScanProgress,
+  ShellIntegrationStatus,
   SpaceLensReport,
+  StorageSnapshotMeta,
   SystemCacheReport,
   SystemOverview,
   TrashTarget,
@@ -89,6 +94,100 @@ export async function runExtensionsScan(
   return await callRustEngine<ExtensionsReport>('scan_extensions', {
     rootPath: rootPath || null,
   });
+}
+
+export async function runAppsAndLeftoversScan(
+  customRoot?: string
+): Promise<AppsAndLeftoversReport> {
+  return await callRustEngine<AppsAndLeftoversReport>(
+    'scan_apps_and_leftovers',
+    {
+      customRoot: customRoot || null,
+    }
+  );
+}
+
+export async function fetchScanProgress(): Promise<ScanProgress> {
+  return await callRustEngine<ScanProgress>('get_scan_progress');
+}
+
+export async function cancelActiveScan(): Promise<void> {
+  await callRustEngine('cancel_active_scan');
+}
+
+export async function fetchProtectedPaths(): Promise<ProtectedPathEntry[]> {
+  return await callRustEngine<ProtectedPathEntry[]>('list_protected_paths');
+}
+
+export async function addProtectedPath(
+  path: string,
+  label?: string
+): Promise<ProtectedPathEntry[]> {
+  return await callRustEngine<ProtectedPathEntry[]>('add_protected_path', {
+    path,
+    label: label || null,
+  });
+}
+
+export async function removeProtectedPath(
+  path: string
+): Promise<ProtectedPathEntry[]> {
+  return await callRustEngine<ProtectedPathEntry[]>('remove_protected_path', {
+    path,
+  });
+}
+
+export async function saveSpaceSnapshot(
+  targetPath: string
+): Promise<StorageSnapshotMeta> {
+  return await callRustEngine<StorageSnapshotMeta>('save_space_snapshot', {
+    targetPath,
+  });
+}
+
+export async function fetchSpaceSnapshots(): Promise<StorageSnapshotMeta[]> {
+  return await callRustEngine<StorageSnapshotMeta[]>('list_space_snapshots');
+}
+
+export async function deleteSpaceSnapshot(targetPath: string): Promise<void> {
+  await callRustEngine('delete_space_snapshot', { targetPath });
+}
+
+export async function fetchShellIntegrationStatus(): Promise<ShellIntegrationStatus> {
+  return await callRustEngine<ShellIntegrationStatus>(
+    'get_shell_integration_status'
+  );
+}
+
+export async function toggleExplorerContextMenu(
+  enabled: boolean
+): Promise<ShellIntegrationStatus> {
+  return await callRustEngine<ShellIntegrationStatus>(
+    'set_explorer_context_menu',
+    { enabled }
+  );
+}
+
+export async function consumeStartupTargetPath(): Promise<string | null> {
+  try {
+    if (window.sessionStorage.getItem('onyx-startup-consumed') === '1') {
+      return null;
+    }
+    const status = await fetchShellIntegrationStatus();
+    if (status.startupPath) {
+      window.sessionStorage.setItem('onyx-startup-consumed', '1');
+      return status.startupPath;
+    }
+  } catch {
+    // Ignore
+  }
+  return null;
+}
+
+export async function launchAppUninstaller(
+  uninstallCommand: string
+): Promise<void> {
+  await callRustEngine('launch_app_uninstaller', { uninstallCommand });
 }
 
 export async function fetchCleanupHistory(): Promise<CleanupHistoryEntry[]> {

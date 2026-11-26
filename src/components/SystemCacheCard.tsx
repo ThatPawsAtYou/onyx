@@ -4,9 +4,12 @@ import * as Switch from '@radix-ui/react-switch';
 import {
   Archive,
   CheckCircle2,
+  Cpu,
   FileWarning,
   Flame,
+  Gamepad2,
   Globe,
+  MessageSquare,
   RefreshCw,
   ShieldCheck,
   Sparkles,
@@ -32,6 +35,9 @@ const cacheCategoryVisuals: Record<
   { icon: typeof Flame; tone: SquircleTone }
 > = {
   os_temp: { icon: Flame, tone: 'amber' },
+  gpu_shader: { icon: Cpu, tone: 'emerald' },
+  game_cache: { icon: Gamepad2, tone: 'indigo' },
+  app_cache: { icon: MessageSquare, tone: 'cyan' },
   browser_cache: { icon: Globe, tone: 'cyan' },
   pkg_cache: { icon: Archive, tone: 'indigo' },
   system_logs: { icon: FileWarning, tone: 'rose' },
@@ -46,21 +52,40 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
   t,
 }) => {
   const [disabledIds, setDisabledIds] = useState<Set<string>>(new Set());
+  const [groupFilter, setGroupFilter] = useState<
+    'all' | 'gpu_game' | 'apps' | 'browser_os'
+  >('all');
   const [displayedFreedGb, setDisplayedFreedGb] = useState<number>(0);
 
-  // Smooth spring/tween rolling counter for freed gigabytes
   useEffect(() => {
     const targetGb = sessionCacheFreedBytes / (1024 * 1024 * 1024);
     const controls = animate(displayedFreedGb, targetGb, {
-      duration: 0.9,
+      duration: 0.85,
       ease: [0.16, 1, 0.3, 1],
       onUpdate: (latest) => setDisplayedFreedGb(latest),
     });
     return () => controls.stop();
   }, [sessionCacheFreedBytes]);
 
+  const filteredItems = useMemo(() => {
+    if (groupFilter === 'all') return items;
+    if (groupFilter === 'gpu_game') {
+      return items.filter(
+        (i) => i.category === 'gpu_shader' || i.category === 'game_cache'
+      );
+    }
+    if (groupFilter === 'apps') {
+      return items.filter((i) => i.category === 'app_cache');
+    }
+    return items.filter((i) =>
+      ['os_temp', 'browser_cache', 'pkg_cache', 'system_logs'].includes(
+        i.category
+      )
+    );
+  }, [items, groupFilter]);
+
   const activeItems = useMemo(
-    () => items.filter((item) => !disabledIds.has(item.id)),
+    () => items.filter((item) => !item.isProtected && !disabledIds.has(item.id)),
     [items, disabledIds]
   );
 
@@ -87,9 +112,18 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
     (sessionCacheFreedBytes / totalPoolBytes) * 100
   );
 
+  const filterPills: Array<{
+    id: 'all' | 'gpu_game' | 'apps' | 'browser_os';
+    label: string;
+  }> = [
+    { id: 'all', label: t.cacheFilterAll },
+    { id: 'gpu_game', label: t.cacheFilterGpu },
+    { id: 'apps', label: t.cacheFilterApps },
+    { id: 'browser_os', label: t.cacheFilterBrowser },
+  ];
+
   return (
     <BentoCard className="col-span-12 lg:col-span-5 p-6" delay={0.1}>
-      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <SquircleIcon icon={Flame} tone="amber" size="md" />
@@ -113,7 +147,7 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
       </div>
 
       {/* Freed Gigabytes Visualizer Module */}
-      <div className="mt-4 relative overflow-hidden rounded-[16px] border border-white/10 bg-gradient-to-br from-zinc-900/90 via-[#08080B] to-[#050507] p-4">
+      <div className="mt-3.5 relative overflow-hidden rounded-[16px] border border-white/10 bg-gradient-to-br from-zinc-900/90 via-[#08080B] to-[#050507] p-4">
         <AnimatePresence>
           {isPurging && (
             <motion.div
@@ -143,7 +177,7 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
             </div>
 
             <div className="mt-1 flex items-baseline gap-2">
-              <span className="font-mono text-[26px] font-semibold tracking-[-0.04em] text-white tabular-nums">
+              <span className="font-mono text-[25px] font-semibold tracking-[-0.04em] text-white tabular-nums">
                 {sessionCacheFreedBytes > 0
                   ? `${displayedFreedGb.toFixed(2)} GB`
                   : formatBytes(selectedPurgeBytes, 2)}
@@ -156,7 +190,6 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
             </div>
           </div>
 
-          {/* Signature Animated Purge Button */}
           <motion.button
             type="button"
             disabled={activeItems.length === 0 || isPurging}
@@ -198,8 +231,7 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
           </motion.button>
         </div>
 
-        {/* Freed Progress Bar */}
-        <div className="mt-3.5">
+        <div className="mt-3">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-900">
             <motion.div
               className={cn(
@@ -223,30 +255,52 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
           <div className="mt-1.5 flex items-center justify-between text-[10px] text-zinc-500">
             <span>{t.safeRecycleBadge}</span>
             <span className="font-mono">
-              {activeItems.length} / {items.length} active
+              {activeItems.length} / {items.length} {t.activeCountSuffix}
             </span>
           </div>
         </div>
       </div>
 
+      {/* Category Filter Pills */}
+      <div className="mt-3 flex items-center gap-1 overflow-x-auto pb-0.5">
+        {filterPills.map((fp) => {
+          const active = groupFilter === fp.id;
+          return (
+            <button
+              key={fp.id}
+              type="button"
+              onClick={() => setGroupFilter(fp.id)}
+              className={cn(
+                'whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                active
+                  ? 'bg-white text-black'
+                  : 'border border-white/10 bg-[#050507] text-zinc-400 hover:text-zinc-200'
+              )}
+            >
+              {fp.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Cache Category Toggle List */}
-      <div className="mt-3.5 flex-1 space-y-2 overflow-y-auto max-h-[215px] pr-1">
+      <div className="mt-2.5 flex-1 space-y-2 overflow-y-auto max-h-[195px] pr-1">
         <AnimatePresence mode="popLayout" initial={false}>
-          {items.length === 0 ? (
+          {filteredItems.length === 0 ? (
             <motion.div
               key="cache-spotless"
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="flex h-[175px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-4 text-center"
+              className="flex h-[160px] flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-white/[0.01] p-4 text-center"
             >
-              <CheckCircle2 size={24} className="text-emerald-400" />
+              <CheckCircle2 size={22} className="text-emerald-400" />
               <p className="mt-2 text-xs font-medium text-zinc-300">
                 {t.purgedDone} · {displayedFreedGb.toFixed(2)} GB
               </p>
             </motion.div>
           ) : (
-            items.map((item) => {
-              const enabled = !disabledIds.has(item.id);
+            filteredItems.map((item) => {
+              const enabled = !item.isProtected && !disabledIds.has(item.id);
               const visual = cacheCategoryVisuals[item.category] || {
                 icon: Flame,
                 tone: 'obsidian' as SquircleTone,
@@ -254,14 +308,12 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
 
               return (
                 <motion.div
-                  layout
                   key={item.id}
-                  initial={{ opacity: 0, y: 6 }}
+                  initial={{ opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, x: -12 }}
-                  transition={{ type: 'spring', stiffness: 400, damping: 32 }}
                   className={cn(
-                    'flex items-center justify-between gap-3 rounded-[13px] border px-3 py-2.5 transition-colors',
+                    'flex items-center justify-between gap-3 rounded-[13px] border px-3 py-2 transition-colors',
                     enabled
                       ? 'border-white/[0.09] bg-white/[0.025]'
                       : 'border-white/[0.04] bg-transparent opacity-50'
@@ -286,6 +338,7 @@ export const SystemCacheCard: React.FC<SystemCacheCardProps> = ({
                     </span>
                     <Switch.Root
                       checked={enabled}
+                      disabled={Boolean(item.isProtected)}
                       onCheckedChange={(checked) => toggleSwitch(item.id, checked)}
                       className="relative h-5 w-9 cursor-pointer rounded-full border border-white/15 bg-zinc-900 transition-colors data-[state=checked]:bg-white"
                     >

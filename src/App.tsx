@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertTriangle,
@@ -9,192 +9,286 @@ import {
   Cpu,
   Download,
   FolderSearch,
+  FolderUp,
   Globe,
   Layers,
   LayoutGrid,
+  PackageSearch,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
 } from 'lucide-react';
 import {
   ActiveView,
+  ContextMenuTarget,
   DevJunkItem,
   DevJunkScanReport,
   DiskTelemetry,
-  Lang,
   LargeFileItem,
   LargeFilesReport,
+  ProtectedPathEntry,
   SpaceNode,
   SystemCacheItem,
   SystemCacheReport,
   SystemOverview,
+  TrashTarget,
 } from './types/onyx';
-import { translations } from './lib/i18n';
+import { detectInitialLang, Lang, translations } from './lib/i18n';
+import { cn, formatBytes } from './lib/format';
 import {
+  addProtectedPath,
+  consumeStartupTargetPath,
   exportAuditReport,
+  fetchProtectedPaths,
   fetchSystemOverview,
+  isTauriRuntime,
   moveTargetsToTrash,
+  removeProtectedPath,
   revealPathInFolder,
   runDevJunkScan,
   runLargeFilesScan,
   runSystemCacheScan,
 } from './lib/bridge';
-import { cn, formatBytes } from './lib/format';
 import { StorageGaugeCard } from './components/StorageGaugeCard';
 import { DevJunkCard } from './components/DevJunkCard';
 import { SystemCacheCard } from './components/SystemCacheCard';
 import { LargeFilesCard } from './components/LargeFilesCard';
 import { SpaceLensView } from './components/SpaceLensView';
 import { DuplicatesView } from './components/DuplicatesView';
+import { AppsAndLeftoversView } from './components/AppsAndLeftoversView';
 import { AnalyticsAndHistoryView } from './components/AnalyticsAndHistoryView';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
-import { OnyxBrandIcon } from './components/OnyxBrandIcon';
 import {
   FolderPickerModal,
   SettingsModal,
 } from './components/SettingsAndFolderModal';
+import { OnyxBrandIcon } from './components/OnyxBrandIcon';
+import { ContextMenu } from './components/ContextMenu';
+import { ScanProgressBar } from './components/ScanProgressBar';
 
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.1.0';
 
-interface ToastBanner {
+interface ToastMessage {
   id: number;
   message: string;
   tone: 'emerald' | 'indigo' | 'rose';
 }
 
 export const App: React.FC = () => {
-  const [lang, setLang] = useState<Lang>(() => {
-    try {
-      return localStorage.getItem('onyx_lang') === 'ru' ? 'ru' : 'en';
-    } catch {
-      return 'en';
-    }
-  });
+  const [lang, setLang] = useState<Lang>(() => detectInitialLang());
   const t = translations[lang];
 
-  const handleChangeLang = useCallback((nextLang: Lang) => {
-    setLang(nextLang);
-    try {
-      localStorage.setItem('onyx_lang', nextLang);
-    } catch {
-      // ignore storage errors
-    }
-    if (typeof document !== 'undefined') {
-      document.documentElement.lang = nextLang;
-    }
-  }, []);
-
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
-  const [customRoot, setCustomRoot] = useState<string>('');
   const [spaceLensStartPath, setSpaceLensStartPath] = useState<string>('');
-  const [minLargeSizeMb, setMinLargeSizeMb] = useState<number>(100);
 
   const [overview, setOverview] = useState<SystemOverview | null>(null);
-  const [selectedDiskId, setSelectedDiskId] = useState<string>('');
+  const [selectedDiskId, setSelectedDiskId] = useState<string | null>(null);
+
   const [devReport, setDevReport] = useState<DevJunkScanReport | null>(null);
-  const [cacheReport, setCacheReport] = useState<SystemCacheReport | null>(null);
+  const [cacheReport, setCacheReport] = useState<SystemCacheReport | null>(
+    null
+  );
   const [largeReport, setLargeReport] = useState<LargeFilesReport | null>(null);
 
-  const [isScanningDev, setIsScanningDev] = useState<boolean>(true);
-  const [isScanningCache, setIsScanningCache] = useState<boolean>(true);
-  const [isScanningLarge, setIsScanningLarge] = useState<boolean>(true);
+  const [protectedEntries, setProtectedEntries] = useState<
+    ProtectedPathEntry[]
+  >([]);
+
+  const [customRoot, setCustomRoot] = useState<string>('');
+  const [minLargeSizeMb, setMinLargeSizeMb] = useState<number>(10);
+
+  const [isScanningDev, setIsScanningDev] = useState<boolean>(false);
+  const [isScanningCache, setIsScanningCache] = useState<boolean>(false);
+  const [isScanningLarge, setIsScanningLarge] = useState<boolean>(false);
+
   const [isCleaningDev, setIsCleaningDev] = useState<boolean>(false);
   const [isPurgingCache, setIsPurgingCache] = useState<boolean>(false);
+
   const [sessionFreedBytes, setSessionFreedBytes] = useState<number>(0);
   const [sessionCacheFreedBytes, setSessionCacheFreedBytes] =
     useState<number>(0);
-  const [engineError, setEngineError] = useState<string | null>(null);
 
   const [folderModalOpen, setFolderModalOpen] = useState<boolean>(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState<boolean>(false);
   const [paletteOpen, setPaletteOpen] = useState<boolean>(false);
-  const [toast, setToast] = useState<ToastBanner | null>(null);
 
-  const minLargeRef = useRef<number>(minLargeSizeMb);
-  minLargeRef.current = minLargeSizeMb;
+  const [contextMenuTarget, setContextMenuTarget] =
+    useState<ContextMenuTarget | null>(null);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [engineError, setEngineError] = useState<string | null>(null);
 
   const isScanning = isScanningDev || isScanningCache || isScanningLarge;
 
+  const protectedSet = useMemo(
+    () => new Set(protectedEntries.map((p) => p.path.toLowerCase())),
+    [protectedEntries]
+  );
+
   const notify = useCallback(
-    (message: string, tone: ToastBanner['tone'] = 'emerald') => {
+    (message: string, tone: ToastMessage['tone'] = 'emerald') => {
       const id = Date.now();
       setToast({ id, message, tone });
       setTimeout(() => {
-        setToast((curr) => (curr?.id === id ? null : curr));
-      }, 4600);
+        setToast((prev) => (prev?.id === id ? null : prev));
+      }, 3600);
     },
     []
   );
 
+  const handleChangeLang = useCallback((nextLang: Lang) => {
+    setLang(nextLang);
+    try {
+      window.localStorage.setItem('onyx-lang', nextLang);
+    } catch {
+      // Ignore storage access errors
+    }
+  }, []);
+
   // Global Ctrl+K / Cmd+K shortcut for Command Palette
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((prev) => !prev);
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Load whitelist + check if Onyx was launched with a CLI folder target ("Inspect in Onyx")
+  useEffect(() => {
+    fetchProtectedPaths()
+      .then((list) => setProtectedEntries(list))
+      .catch(() => {});
+
+    consumeStartupTargetPath()
+      .then((startupDir) => {
+        if (startupDir) {
+          setSpaceLensStartPath(startupDir);
+          setActiveView('spacelens');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Tauri native drag-and-drop listener + Win32 WebView2 folder drop bridge
+  useEffect(() => {
+    const onCustomDrop = (ev: Event) => {
+      const detail = (ev as CustomEvent<string>).detail;
+      if (detail && typeof detail === 'string') {
+        setIsDragOver(false);
+        setSpaceLensStartPath(detail);
+        setActiveView('spacelens');
+      }
+    };
+    window.addEventListener('onyx://folder-drop', onCustomDrop);
+
+    let unlistenFn: (() => void) | null = null;
+    if (isTauriRuntime()) {
+      import('@tauri-apps/api/event')
+        .then(async ({ listen }) => {
+          const unlistenDrop = await listen<{ paths?: string[] }>(
+            'tauri://drag-drop',
+            (event) => {
+              setIsDragOver(false);
+              const first = event.payload?.paths?.[0];
+              if (first) {
+                setSpaceLensStartPath(first);
+                setActiveView('spacelens');
+              }
+            }
+          );
+          const unlistenEnter = await listen('tauri://drag-enter', () =>
+            setIsDragOver(true)
+          );
+          const unlistenLeave = await listen('tauri://drag-leave', () =>
+            setIsDragOver(false)
+          );
+          unlistenFn = () => {
+            unlistenDrop();
+            unlistenEnter();
+            unlistenLeave();
+          };
+        })
+        .catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('onyx://folder-drop', onCustomDrop);
+      if (unlistenFn) unlistenFn();
+    };
   }, []);
 
   const refreshOverviewOnly = useCallback(async () => {
     try {
       const sys = await fetchSystemOverview();
       setOverview(sys);
-      setSelectedDiskId((prev) =>
-        sys.disks.some((d) => d.id === prev) ? prev : sys.disks[0]?.id ?? ''
-      );
-      setEngineError(null);
+      setSelectedDiskId((prev) => prev || sys.disks[0]?.id || null);
       return sys;
-    } catch (err) {
-      setEngineError(err instanceof Error ? err.message : String(err));
+    } catch {
       return null;
     }
   }, []);
 
-  // Progressive non-blocking scan so Drives/CPU/RAM appear immediately while disk scanners stream in
   const runFullScan = useCallback(
-    async (rootPath: string, thresholdMb: number) => {
+    async (rootOverride: string, largeThresholdMb: number) => {
       setEngineError(null);
       setIsScanningDev(true);
       setIsScanningCache(true);
       setIsScanningLarge(true);
 
-      const sysTask = refreshOverviewOnly();
+      const rootsArg = rootOverride.trim() ? [rootOverride.trim()] : undefined;
 
-      const cacheTask = runSystemCacheScan()
-        .then((cache) => setCacheReport(cache))
-        .catch((err) =>
-          setEngineError(err instanceof Error ? err.message : String(err))
+      try {
+        const sysPromise = fetchSystemOverview().then((sys) => {
+          setOverview(sys);
+          setSelectedDiskId((prev) => prev || sys.disks[0]?.id || null);
+          return sys;
+        });
+
+        const cachePromise = runSystemCacheScan()
+          .then((caches) => {
+            setCacheReport(caches);
+            return caches;
+          })
+          .finally(() => setIsScanningCache(false));
+
+        const devPromise = runDevJunkScan(rootsArg)
+          .then((dev) => {
+            setDevReport(dev);
+            return dev;
+          })
+          .finally(() => setIsScanningDev(false));
+
+        const largePromise = runLargeFilesScan(
+          rootOverride.trim() || undefined,
+          largeThresholdMb
         )
-        .finally(() => setIsScanningCache(false));
+          .then((large) => {
+            setLargeReport(large);
+            return large;
+          })
+          .finally(() => setIsScanningLarge(false));
 
-      const devTask = runDevJunkScan(rootPath ? [rootPath] : undefined)
-        .then((dev) => setDevReport(dev))
-        .catch((err) =>
-          setEngineError(err instanceof Error ? err.message : String(err))
-        )
-        .finally(() => setIsScanningDev(false));
-
-      const largeTask = runLargeFilesScan(rootPath || undefined, thresholdMb)
-        .then((large) => setLargeReport(large))
-        .catch((err) =>
-          setEngineError(err instanceof Error ? err.message : String(err))
-        )
-        .finally(() => setIsScanningLarge(false));
-
-      await Promise.allSettled([sysTask, cacheTask, devTask, largeTask]);
+        await Promise.all([sysPromise, cachePromise, devPromise, largePromise]);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setEngineError(msg);
+        setIsScanningDev(false);
+        setIsScanningCache(false);
+        setIsScanningLarge(false);
+      }
     },
-    [refreshOverviewOnly]
+    []
   );
 
-  // Initial & customRoot-triggered full scan
   useEffect(() => {
-    runFullScan(customRoot, minLargeRef.current);
-  }, [customRoot, runFullScan]);
+    runFullScan(customRoot, minLargeSizeMb);
+  }, [customRoot]);
 
-  // Changing Large Files threshold ONLY rescans Large Files (instant, no wasted Dev/Cache scan)
   const handleChangeLargeThreshold = useCallback(
     async (nextMb: number) => {
       setMinLargeSizeMb(nextMb);
@@ -211,7 +305,6 @@ export const App: React.FC = () => {
     [customRoot, notify]
   );
 
-  // Lightweight live hardware telemetry refresh (CPU/RAM/Disks) every 6 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       fetchSystemOverview()
@@ -225,9 +318,40 @@ export const App: React.FC = () => {
     setSelectedDiskId(disk.id);
   };
 
-  const handleOpenInSpaceLens = (mountPoint: string) => {
-    setSpaceLensStartPath(mountPoint);
+  const handleOpenInSpaceLens = (targetPath: string) => {
+    setSpaceLensStartPath(targetPath);
     setActiveView('spacelens');
+  };
+
+  const handleToggleProtectPath = useCallback(
+    async (path: string, currentlyProtected: boolean) => {
+      try {
+        if (currentlyProtected) {
+          const updated = await removeProtectedPath(path);
+          setProtectedEntries(updated);
+          notify(`${t.toastProtectedRemoved}: ${path}`, 'indigo');
+        } else {
+          const updated = await addProtectedPath(path);
+          setProtectedEntries(updated);
+          notify(`${t.toastProtectedAdded}: ${path}`, 'emerald');
+        }
+      } catch (err) {
+        notify(err instanceof Error ? err.message : String(err), 'rose');
+      }
+    },
+    [notify, t.toastProtectedAdded, t.toastProtectedRemoved]
+  );
+
+  const handleAddProtectedPath = async (path: string) => {
+    const updated = await addProtectedPath(path);
+    setProtectedEntries(updated);
+    notify(`${t.toastProtectedAdded}: ${path}`, 'emerald');
+  };
+
+  const handleRemoveProtectedPath = async (path: string) => {
+    const updated = await removeProtectedPath(path);
+    setProtectedEntries(updated);
+    notify(`${t.toastProtectedRemoved}: ${path}`, 'indigo');
   };
 
   const handleCleanDevItems = async (selected: DevJunkItem[]) => {
@@ -237,6 +361,7 @@ export const App: React.FC = () => {
       const targets = selected.map((s) => ({
         path: s.path,
         contentsOnly: false,
+        expectedBytes: s.sizeBytes,
       }));
       const res = await moveTargetsToTrash(targets, 'dev_junk');
 
@@ -248,7 +373,7 @@ export const App: React.FC = () => {
           })`,
           'emerald'
         );
-        const [ , freshDev] = await Promise.all([
+        const [, freshDev] = await Promise.all([
           refreshOverviewOnly(),
           runDevJunkScan(customRoot ? [customRoot] : undefined),
         ]);
@@ -270,6 +395,7 @@ export const App: React.FC = () => {
       const targets = selected.map((s) => ({
         path: s.path,
         contentsOnly: s.cleanContentsOnly,
+        expectedBytes: s.sizeBytes,
       }));
       const res = await moveTargetsToTrash(targets, 'system_cache');
       if (res.deletedCount > 0 || res.freedBytes > 0) {
@@ -297,12 +423,17 @@ export const App: React.FC = () => {
   const handleTrashLargeFile = async (file: LargeFileItem) => {
     try {
       const res = await moveTargetsToTrash(
-        [{ path: file.path, contentsOnly: false }],
+        [
+          {
+            path: file.path,
+            contentsOnly: false,
+            expectedBytes: file.sizeBytes,
+          },
+        ],
         'large_files'
       );
       if (res.deletedCount > 0) {
         setSessionFreedBytes((prev) => prev + res.freedBytes);
-        // Optimistic zero-latency UI update + drive free space refresh
         setLargeReport((prev) => {
           if (!prev) return prev;
           const remaining = prev.items.filter((i) => i.id !== file.id);
@@ -328,7 +459,13 @@ export const App: React.FC = () => {
   const handleTrashSpaceLensNode = async (node: SpaceNode): Promise<boolean> => {
     try {
       const res = await moveTargetsToTrash(
-        [{ path: node.path, contentsOnly: false }],
+        [
+          {
+            path: node.path,
+            contentsOnly: false,
+            expectedBytes: node.sizeBytes,
+          },
+        ],
         'space_lens'
       );
       if (res.deletedCount > 0) {
@@ -369,6 +506,56 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleCleanAppTargets = async (
+    targets: TrashTarget[],
+    category: string
+  ) => {
+    try {
+      const res = await moveTargetsToTrash(targets, category);
+      if (res.deletedCount > 0) {
+        setSessionFreedBytes((prev) => prev + res.freedBytes);
+        notify(
+          `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${
+            res.deletedCount
+          })`,
+          'emerald'
+        );
+        refreshOverviewOnly();
+      } else if (res.errors.length > 0) {
+        notify(res.errors[0], 'rose');
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
+    }
+  };
+
+  const handleTrashArbitraryTarget = async (target: ContextMenuTarget) => {
+    try {
+      const res = await moveTargetsToTrash(
+        [
+          {
+            path: target.path,
+            contentsOnly: false,
+            expectedBytes: target.sizeBytes,
+          },
+        ],
+        'context_menu'
+      );
+      if (res.deletedCount > 0) {
+        setSessionFreedBytes((prev) => prev + res.freedBytes);
+        notify(
+          `${t.toastCleaned}: ${formatBytes(res.freedBytes, 2)} (${target.name})`,
+          'emerald'
+        );
+        await runFullScan(customRoot, minLargeSizeMb);
+      } else if (res.errors.length > 0) {
+        notify(res.errors[0], 'rose');
+      }
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'rose');
+    }
+  };
+
   const handleRevealPath = async (path: string) => {
     try {
       await revealPathInFolder(path);
@@ -377,6 +564,33 @@ export const App: React.FC = () => {
       notify(err instanceof Error ? err.message : path, 'rose');
     }
   };
+
+  const handleCopyText = async (text: string, toastText: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback textarea copy
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    notify(toastText, 'indigo');
+  };
+
+  const handleOpenContextMenu = useCallback(
+    (e: React.MouseEvent, item: Omit<ContextMenuTarget, 'x' | 'y'>) => {
+      e.preventDefault();
+      setContextMenuTarget({
+        ...item,
+        x: e.clientX,
+        y: e.clientY,
+      });
+    },
+    []
+  );
 
   const saveReportFile = async (
     filename: string,
@@ -419,19 +633,19 @@ export const App: React.FC = () => {
           `| \`${d.mountPoint}\` | ${d.name} | ${d.fileSystem} | ${d.kindLabel} | ${formatBytes(d.usedBytes, 2)} | ${formatBytes(d.availableBytes, 2)} | ${formatBytes(d.totalBytes, 2)} | ${d.usagePercent}% |`
       ),
       ``,
-      `## Developer Build Artifacts (${formatBytes(devReport?.totalBytes || 0, 2)})`,
+      `## Developer & Game Artifacts (${formatBytes(devReport?.totalBytes || 0, 2)})`,
       ...(devReport?.items.slice(0, 25).map(
         (i) =>
           `- **${i.projectName}** (${i.ecosystem}) — \`${formatBytes(i.sizeBytes, 2)}\` — \`${i.path}\``
       ) || ['- None detected']),
       ``,
-      `## System & Package Caches (${formatBytes(cacheReport?.totalBytes || 0, 2)})`,
+      `## System, GPU Shader & Messenger Caches (${formatBytes(cacheReport?.totalBytes || 0, 2)})`,
       ...(cacheReport?.items.map(
         (b) =>
           `- **${b.title}** — \`${formatBytes(b.sizeBytes, 2)}\` (\`${b.path}\`)`
       ) || ['- None detected']),
       ``,
-      `## Top Large Files (${formatBytes(largeReport?.totalBytes || 0, 2)})`,
+      `## Top Large Files & Virtual Disks (${formatBytes(largeReport?.totalBytes || 0, 2)})`,
       ...(largeReport?.items.slice(0, 25).map(
         (f) =>
           `- **${f.name}** — \`${formatBytes(f.sizeBytes, 2)}\` — \`${f.path}\``
@@ -462,24 +676,92 @@ export const App: React.FC = () => {
     );
   };
 
+  // HTML5 Drag & Drop support for web/hybrid views
+  const handleHtmlDragOver = (e: React.DragEvent) => {
+    if (e.dataTransfer?.types?.includes('Files')) {
+      e.preventDefault();
+      setIsDragOver(true);
+    }
+  };
+
+  const handleHtmlDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget === e.target) {
+      setIsDragOver(false);
+    }
+  };
+
+  const handleHtmlDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer?.files?.[0] as (File & { path?: string }) | undefined;
+    if (file?.path) {
+      setSpaceLensStartPath(file.path);
+      setActiveView('spacelens');
+    }
+  };
+
   const activeScanRoot = customRoot || overview?.homeDir || '/';
   const isMacPlatform =
     typeof navigator !== 'undefined' &&
     /Mac|iPod|iPhone|iPad/i.test(navigator.platform || '');
 
-  const navItems: { id: ActiveView; label: string; icon: typeof LayoutGrid }[] = [
-    { id: 'dashboard', label: t.navDashboard, icon: LayoutGrid },
-    { id: 'spacelens', label: t.navSpaceLens, icon: Layers },
-    { id: 'duplicates', label: t.navDuplicates, icon: Copy },
-    { id: 'analytics', label: t.navAnalytics, icon: BarChart3 },
-  ];
+  const navItems: { id: ActiveView; label: string; icon: typeof LayoutGrid }[] =
+    [
+      { id: 'dashboard', label: t.navDashboard, icon: LayoutGrid },
+      { id: 'spacelens', label: t.navSpaceLens, icon: Layers },
+      { id: 'duplicates', label: t.navDuplicates, icon: Copy },
+      { id: 'apps', label: t.navApps, icon: PackageSearch },
+      { id: 'analytics', label: t.navAnalytics, icon: BarChart3 },
+    ];
 
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden bg-[#050505] text-zinc-100 selection:bg-white selection:text-zinc-950">
+    <div
+      onDragOver={handleHtmlDragOver}
+      onDragLeave={handleHtmlDragLeave}
+      onDrop={handleHtmlDrop}
+      className="relative min-h-screen w-full overflow-x-hidden bg-[#050505] text-zinc-100 selection:bg-white selection:text-zinc-950"
+    >
       {/* Subtle Top Radial Obsidian Spotlight */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-x-0 top-0 z-0 h-[440px] bg-[radial-gradient(ellipse_68%_45%_at_50%_-10%,rgba(120,130,255,0.10),transparent_72%)]"
+      />
+
+      {/* Drag & Drop Inspection Overlay */}
+      <AnimatePresence>
+        {isDragOver && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-4 z-50 flex flex-col items-center justify-center rounded-[28px] border-2 border-dashed border-cyan-400/60 bg-[#050508]/90 backdrop-blur-xl"
+          >
+            <FolderUp size={42} className="text-cyan-300" />
+            <h3 className="mt-3 text-lg font-semibold text-white">
+              {t.dropOverlayTitle}
+            </h3>
+            <p className="mt-1 text-xs text-zinc-400">
+              {t.dropOverlaySubtitle}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Global Right-Click Context Menu */}
+      <ContextMenu
+        target={contextMenuTarget}
+        onClose={() => setContextMenuTarget(null)}
+        onInspectSpaceLens={(path) => {
+          setSpaceLensStartPath(path);
+          setActiveView('spacelens');
+        }}
+        onRevealPath={handleRevealPath}
+        onCopyPath={(path) =>
+          handleCopyText(path, `${t.toastPathCopied}: ${path}`)
+        }
+        onToggleProtect={(path, prot) => handleToggleProtectPath(path, prot)}
+        onMoveToTrash={handleTrashArbitraryTarget}
+        t={t}
       />
 
       {/* Floating Toast Notification */}
@@ -515,7 +797,6 @@ export const App: React.FC = () => {
       <div className="relative z-10 mx-auto max-w-[1380px] px-4 py-5 sm:px-7 sm:py-6">
         {/* Top Desktop App Header */}
         <header className="flex flex-wrap items-center justify-between gap-4 pb-4">
-          {/* Brand Identity */}
           <div className="flex items-center gap-3.5">
             <OnyxBrandIcon className="h-10 w-10 shrink-0 drop-shadow-[0_8px_24px_rgba(0,0,0,0.75)]" />
 
@@ -534,7 +815,6 @@ export const App: React.FC = () => {
 
           {/* Right Toolbar */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Session Freed Indicator */}
             {sessionFreedBytes > 0 && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -547,7 +827,6 @@ export const App: React.FC = () => {
               </motion.div>
             )}
 
-            {/* Command Palette Button (Ctrl+K / Cmd+K) */}
             <motion.button
               type="button"
               whileTap={{ scale: 0.97 }}
@@ -561,7 +840,6 @@ export const App: React.FC = () => {
               </kbd>
             </motion.button>
 
-            {/* Target Folder Selector */}
             <motion.button
               type="button"
               whileTap={{ scale: 0.98 }}
@@ -577,7 +855,6 @@ export const App: React.FC = () => {
               </span>
             </motion.button>
 
-            {/* Export Report Quick Action */}
             <motion.button
               type="button"
               whileTap={{ scale: 0.96 }}
@@ -589,7 +866,6 @@ export const App: React.FC = () => {
               <span>{t.exportMdBtn}</span>
             </motion.button>
 
-            {/* Language Switcher (EN / RU) */}
             <motion.button
               type="button"
               whileTap={{ scale: 0.96 }}
@@ -619,7 +895,6 @@ export const App: React.FC = () => {
               </span>
             </motion.button>
 
-            {/* Settings Modal Trigger */}
             <motion.button
               type="button"
               whileTap={{ scale: 0.96 }}
@@ -630,7 +905,6 @@ export const App: React.FC = () => {
               <SlidersHorizontal size={14} />
             </motion.button>
 
-            {/* Primary Rescan CTA */}
             <motion.button
               type="button"
               disabled={isScanning}
@@ -649,7 +923,7 @@ export const App: React.FC = () => {
         </header>
 
         {/* Sub-Header View Switcher Bar */}
-        <nav className="mb-5 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+        <nav className="mb-4 flex items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
           <div className="flex items-center gap-1.5 overflow-x-auto rounded-full border border-white/[0.09] bg-[#09090C] p-1">
             {navItems.map((nav) => {
               const Icon = nav.icon;
@@ -661,18 +935,26 @@ export const App: React.FC = () => {
                   onClick={() => setActiveView(nav.id)}
                   className={cn(
                     'relative inline-flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-1.5 text-xs font-medium transition-colors',
-                    selected ? 'text-zinc-950' : 'text-zinc-400 hover:text-zinc-200'
+                    selected
+                      ? 'text-zinc-950'
+                      : 'text-zinc-400 hover:text-zinc-200'
                   )}
                 >
                   {selected && (
                     <motion.div
                       layoutId="onyxPrimaryNavPill"
-                      transition={{ type: 'spring', stiffness: 460, damping: 34 }}
+                      transition={{
+                        type: 'spring',
+                        stiffness: 460,
+                        damping: 34,
+                      }}
                       className="absolute inset-0 rounded-full bg-white shadow-[0_0_20px_rgba(255,255,255,0.2)]"
                     />
                   )}
                   <Icon size={13} className="relative z-10" />
-                  <span className="relative z-10 font-semibold">{nav.label}</span>
+                  <span className="relative z-10 font-semibold">
+                    {nav.label}
+                  </span>
                 </button>
               );
             })}
@@ -688,6 +970,9 @@ export const App: React.FC = () => {
             </div>
           )}
         </nav>
+
+        {/* Live Cancellable Scan Progress Banner */}
+        <ScanProgressBar active={isScanning} t={t} />
 
         {/* Engine Connection Error Banner */}
         {engineError && (
@@ -716,7 +1001,7 @@ export const App: React.FC = () => {
           <main className="grid grid-cols-12 gap-4">
             <StorageGaugeCard
               disks={overview?.disks ?? []}
-              selectedDiskId={selectedDiskId}
+              selectedDiskId={selectedDiskId || overview?.disks[0]?.id || ''}
               onSelectDisk={handleSelectDisk}
               onOpenInSpaceLens={handleOpenInSpaceLens}
               memory={
@@ -743,8 +1028,11 @@ export const App: React.FC = () => {
               durationMs={devReport?.durationMs ?? 0}
               isScanning={isScanningDev}
               isCleaning={isCleaningDev}
+              protectedSet={protectedSet}
+              onToggleProtect={handleToggleProtectPath}
               onCleanItems={handleCleanDevItems}
               onRevealPath={handleRevealPath}
+              onOpenContextMenu={handleOpenContextMenu}
               t={t}
             />
 
@@ -769,9 +1057,15 @@ export const App: React.FC = () => {
               items={largeReport?.items ?? []}
               minSizeMb={minLargeSizeMb}
               isScanning={isScanningLarge}
+              protectedSet={protectedSet}
+              onToggleProtect={handleToggleProtectPath}
               onChangeThresholdMb={handleChangeLargeThreshold}
               onTrashFile={handleTrashLargeFile}
               onRevealPath={handleRevealPath}
+              onCopyCompactCmd={(cmd) =>
+                handleCopyText(cmd, `${t.copiedCompactToast}: ${cmd}`)
+              }
+              onOpenContextMenu={handleOpenContextMenu}
               t={t}
             />
           </main>
@@ -784,8 +1078,12 @@ export const App: React.FC = () => {
             }
             disks={overview?.disks ?? []}
             homeDir={overview?.homeDir ?? ''}
+            protectedSet={protectedSet}
+            onToggleProtect={handleToggleProtectPath}
             onRevealPath={handleRevealPath}
             onTrashNode={handleTrashSpaceLensNode}
+            onOpenContextMenu={handleOpenContextMenu}
+            onSnapshotSaved={() => notify(t.snapshotSavedToast, 'emerald')}
             t={t}
           />
         )}
@@ -793,8 +1091,28 @@ export const App: React.FC = () => {
         {activeView === 'duplicates' && (
           <DuplicatesView
             customRoot={customRoot}
+            protectedSet={protectedSet}
+            onToggleProtect={handleToggleProtectPath}
             onRevealPath={handleRevealPath}
             onCleanPaths={handleTrashDuplicates}
+            onOpenContextMenu={handleOpenContextMenu}
+            t={t}
+          />
+        )}
+
+        {activeView === 'apps' && (
+          <AppsAndLeftoversView
+            customRoot={customRoot}
+            protectedSet={protectedSet}
+            onToggleProtect={handleToggleProtectPath}
+            onInspectSpaceLens={(path) => {
+              setSpaceLensStartPath(path);
+              setActiveView('spacelens');
+            }}
+            onRevealPath={handleRevealPath}
+            onCleanTargets={handleCleanAppTargets}
+            onOpenContextMenu={handleOpenContextMenu}
+            onNotifyError={(msg) => notify(msg, 'rose')}
             t={t}
           />
         )}
@@ -822,7 +1140,7 @@ export const App: React.FC = () => {
             <div className="flex flex-wrap items-center gap-3 font-mono">
               <span className="inline-flex items-center gap-1 text-zinc-400">
                 <Cpu size={12} />
-                {overview.cpuCores} Threads ·{' '}
+                {overview.cpuCores} {t.threadsSuffix} ·{' '}
                 {overview.cpuUsagePercent.toFixed(1)}%
               </span>
               <span>·</span>
@@ -866,6 +1184,9 @@ export const App: React.FC = () => {
         onOpenChange={setSettingsModalOpen}
         lang={lang}
         onChangeLang={handleChangeLang}
+        protectedEntries={protectedEntries}
+        onAddProtectedPath={handleAddProtectedPath}
+        onRemoveProtectedPath={handleRemoveProtectedPath}
         cpuBrand={overview?.cpuBrand ?? 'x86_64'}
         cpuCores={overview?.cpuCores ?? 4}
         osName={overview?.osName ?? 'Desktop OS'}

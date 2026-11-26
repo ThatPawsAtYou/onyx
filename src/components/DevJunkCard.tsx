@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   ArrowRight,
   Box,
@@ -9,14 +8,16 @@ import {
   Code2,
   Container,
   FolderOpen,
+  Gamepad2,
   Layers,
   Loader2,
   Package,
+  Shield,
   Sparkles,
   Terminal,
   Zap,
 } from 'lucide-react';
-import { DevJunkItem } from '../types/onyx';
+import { ContextMenuTarget, DevJunkItem } from '../types/onyx';
 import { TranslationSet } from '../lib/i18n';
 import { cn, formatBytes, formatCompactCount } from '../lib/format';
 import { BentoCard } from './BentoCard';
@@ -27,8 +28,14 @@ interface DevJunkCardProps {
   durationMs: number;
   isScanning: boolean;
   isCleaning: boolean;
+  protectedSet: Set<string>;
+  onToggleProtect: (path: string, currentlyProtected: boolean) => Promise<void>;
   onCleanItems: (selected: DevJunkItem[]) => Promise<void>;
   onRevealPath: (path: string) => void;
+  onOpenContextMenu: (
+    e: React.MouseEvent,
+    item: Omit<ContextMenuTarget, 'x' | 'y'>
+  ) => void;
   t: TranslationSet;
 }
 
@@ -42,6 +49,7 @@ const categoryMeta: Record<
   docker_cache: { label: 'Docker', icon: Container, tone: 'cyan' },
   gradle_pods: { label: 'Gradle / Pods', icon: Layers, tone: 'rose' },
   web_cache: { label: '.next / Turbo', icon: Code2, tone: 'obsidian' },
+  game_redist: { label: 'Game Redist', icon: Gamepad2, tone: 'amber' },
 };
 
 export const DevJunkCard: React.FC<DevJunkCardProps> = ({
@@ -49,13 +57,19 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
   durationMs,
   isScanning,
   isCleaning,
+  protectedSet,
+  onToggleProtect,
   onCleanItems,
   onRevealPath,
+  onOpenContextMenu,
   t,
 }) => {
   const [activeCat, setActiveCat] = useState<string>('all');
   const [minDaysOld, setMinDaysOld] = useState<number>(0);
   const [unselectedIds, setUnselectedIds] = useState<Set<string>>(new Set());
+
+  const isItemProtected = (item: DevJunkItem) =>
+    Boolean(item.isProtected) || protectedSet.has(item.path.toLowerCase());
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -65,9 +79,14 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
     });
   }, [items, activeCat, minDaysOld]);
 
+  const cleanableItems = useMemo(
+    () => filteredItems.filter((item) => !isItemProtected(item)),
+    [filteredItems, protectedSet]
+  );
+
   const selectedItems = useMemo(
-    () => filteredItems.filter((item) => !unselectedIds.has(item.id)),
-    [filteredItems, unselectedIds]
+    () => cleanableItems.filter((item) => !unselectedIds.has(item.id)),
+    [cleanableItems, unselectedIds]
   );
 
   const selectedBytes = useMemo(
@@ -83,26 +102,27 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [items]);
 
-  const toggleItem = (id: string) => {
+  const toggleItem = (item: DevJunkItem) => {
+    if (isItemProtected(item)) return;
     setUnselectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
       return next;
     });
   };
 
   const toggleAllVisible = () => {
-    if (selectedItems.length === filteredItems.length) {
+    if (selectedItems.length === cleanableItems.length) {
       setUnselectedIds((prev) => {
         const next = new Set(prev);
-        filteredItems.forEach((i) => next.add(i.id));
+        cleanableItems.forEach((i) => next.add(i.id));
         return next;
       });
     } else {
       setUnselectedIds((prev) => {
         const next = new Set(prev);
-        filteredItems.forEach((i) => next.delete(i.id));
+        cleanableItems.forEach((i) => next.delete(i.id));
         return next;
       });
     }
@@ -116,7 +136,6 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
 
   return (
     <BentoCard className="col-span-12 lg:col-span-7 p-6" delay={0.06}>
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <SquircleIcon icon={Terminal} tone="indigo" size="md" />
@@ -129,7 +148,6 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Smart Age Filter */}
           <div className="flex items-center gap-0.5 rounded-full border border-white/10 bg-[#050507] p-0.5">
             {ageFilters.map((af) => {
               const active = minDaysOld === af.days;
@@ -159,18 +177,18 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
         </div>
       </div>
 
-      {/* Ecosystem Filter Strip */}
+      {/* Category Filter Pills */}
       <div className="mt-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           <motion.button
             type="button"
-            whileTap={{ scale: 0.98 }}
+            whileTap={{ scale: 0.97 }}
             onClick={() => setActiveCat('all')}
             className={cn(
-              'relative rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap',
+              'whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors',
               activeCat === 'all'
                 ? 'bg-white text-zinc-950'
-                : 'border border-white/10 bg-white/[0.02] text-zinc-400 hover:text-zinc-200'
+                : 'border border-white/10 bg-white/[0.02] text-zinc-400 hover:border-white/20 hover:text-zinc-200'
             )}
           >
             {t.allEcosystems} ({items.length})
@@ -187,16 +205,16 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
               <motion.button
                 key={catKey}
                 type="button"
-                whileTap={{ scale: 0.98 }}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => setActiveCat(catKey)}
                 className={cn(
-                  'rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap',
+                  'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-medium transition-colors',
                   active
                     ? 'bg-white text-zinc-950'
-                    : 'border border-white/10 bg-white/[0.02] text-zinc-400 hover:border-white/20 hover:text-zinc-200'
+                    : 'border border-white/10 bg-white/[0.02] text-zinc-300 hover:border-white/20 hover:text-white'
                 )}
               >
-                {meta.label}{' '}
+                <span>{meta.label}</span>
                 <span
                   className={cn(
                     'ml-1 font-mono text-[11px]',
@@ -210,13 +228,13 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
           })}
         </div>
 
-        {filteredItems.length > 0 && (
+        {cleanableItems.length > 0 && (
           <button
             type="button"
             onClick={toggleAllVisible}
             className="shrink-0 text-[11px] font-medium text-zinc-400 transition-colors hover:text-white"
           >
-            {selectedItems.length === filteredItems.length
+            {selectedItems.length === cleanableItems.length
               ? t.deselectAll
               : t.selectAll}
           </button>
@@ -244,7 +262,8 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
             </motion.div>
           ) : (
             filteredItems.map((item) => {
-              const isSelected = !unselectedIds.has(item.id);
+              const isProt = isItemProtected(item);
+              const isSelected = !isProt && !unselectedIds.has(item.id);
               const meta = categoryMeta[item.category] || {
                 label: item.category,
                 icon: Package,
@@ -253,31 +272,47 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
 
               return (
                 <motion.div
-                  layout
                   key={item.id}
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: -18, scale: 0.97 }}
-                  transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                  exit={{ opacity: 0, x: -16, scale: 0.97 }}
                   whileTap={{ scale: 0.992 }}
-                  onClick={() => toggleItem(item.id)}
+                  onClick={() => toggleItem(item)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    onOpenContextMenu(e, {
+                      name: item.projectName,
+                      path: item.path,
+                      isDir: true,
+                      sizeBytes: item.sizeBytes,
+                      isProtected: isProt,
+                    });
+                  }}
                   className={cn(
                     'group/row flex cursor-pointer items-center justify-between gap-3 rounded-[14px] border px-3.5 py-2.5 transition-colors',
-                    isSelected
-                      ? 'border-white/[0.11] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.045]'
-                      : 'border-white/[0.05] bg-transparent opacity-55 hover:opacity-85'
+                    isProt
+                      ? 'border-emerald-500/20 bg-emerald-500/[0.03] opacity-75'
+                      : isSelected
+                        ? 'border-white/[0.11] bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.045]'
+                        : 'border-white/[0.05] bg-transparent opacity-55 hover:opacity-85'
                   )}
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div
                       className={cn(
                         'flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors',
-                        isSelected
-                          ? 'border-white bg-white text-zinc-950'
-                          : 'border-white/25 bg-zinc-950'
+                        isProt
+                          ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-300'
+                          : isSelected
+                            ? 'border-white bg-white text-zinc-950'
+                            : 'border-white/25 bg-zinc-950'
                       )}
                     >
-                      {isSelected && <Check size={11} strokeWidth={3} />}
+                      {isProt ? (
+                        <Shield size={10} />
+                      ) : (
+                        isSelected && <Check size={11} strokeWidth={3} />
+                      )}
                     </div>
 
                     <SquircleIcon icon={meta.icon} tone={meta.tone} size="sm" />
@@ -290,9 +325,14 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
                         <span className="hidden sm:inline-block rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-zinc-400">
                           {item.ecosystem}
                         </span>
+                        {isProt && (
+                          <span className="rounded-md border border-emerald-400/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                            {t.protectedBadge}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-0.5 flex items-center gap-2 text-[11px] text-zinc-500">
-                        <span className="truncate max-w-[260px] font-mono">
+                        <span className="truncate max-w-[250px] font-mono">
                           {item.path}
                         </span>
                         <span>·</span>
@@ -309,34 +349,37 @@ export const DevJunkCard: React.FC<DevJunkCardProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2.5">
-                    <Tooltip.Provider delayDuration={200}>
-                      <Tooltip.Root>
-                        <Tooltip.Trigger asChild>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onRevealPath(item.path);
-                            }}
-                            className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-white/10 hover:text-zinc-200 group-hover/row:opacity-100"
-                            aria-label={t.revealFolder}
-                          >
-                            <FolderOpen size={14} />
-                          </button>
-                        </Tooltip.Trigger>
-                        <Tooltip.Portal>
-                          <Tooltip.Content
-                            sideOffset={6}
-                            className="z-50 rounded-lg border border-white/15 bg-zinc-900 px-2.5 py-1 text-[11px] text-zinc-200 shadow-xl"
-                          >
-                            {t.revealFolder}
-                          </Tooltip.Content>
-                        </Tooltip.Portal>
-                      </Tooltip.Root>
-                    </Tooltip.Provider>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleProtect(item.path, isProt);
+                      }}
+                      className={cn(
+                        'rounded-lg p-1.5 transition-all',
+                        isProt
+                          ? 'text-emerald-300 opacity-100'
+                          : 'text-zinc-500 opacity-0 hover:bg-white/10 hover:text-emerald-300 group-hover/row:opacity-100'
+                      )}
+                      title={isProt ? t.ctxUnprotectPath : t.ctxProtectPath}
+                    >
+                      <Shield size={13} />
+                    </button>
 
-                    <span className="font-mono text-[13px] font-semibold text-white tabular-nums">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRevealPath(item.path);
+                      }}
+                      className="rounded-lg p-1.5 text-zinc-500 opacity-0 transition-all hover:bg-white/10 hover:text-zinc-200 group-hover/row:opacity-100"
+                      title={t.revealFolder}
+                    >
+                      <FolderOpen size={14} />
+                    </button>
+
+                    <span className="min-w-[68px] text-right font-mono text-[13px] font-semibold text-white tabular-nums">
                       {formatBytes(item.sizeBytes, 2)}
                     </span>
                   </div>
